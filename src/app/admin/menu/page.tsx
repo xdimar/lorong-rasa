@@ -1,0 +1,888 @@
+'use client'
+
+import { useEffect, useState, useRef } from 'react'
+import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, Tag, AlertCircle, Check } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+
+interface MenuItem {
+  id: string
+  name: string
+  description: string
+  price: number
+  category: string
+  image_url: string | null
+  is_available: boolean
+  created_at: string
+}
+
+const defaultCategories = [
+  'Makanan Berat',
+  'Snack',
+  'Milky Series',
+  'Renceng Series',
+  'Lokal Series',
+  'Tea Series',
+  'Coffee Series',
+  'Mocktail Series',
+]
+const emptyForm = { name: '', description: '', price: 0, category: 'Makanan Berat', is_available: true, image_url: null as string | null }
+
+export default function MenuAdminPage() {
+  const [items, setItems] = useState<MenuItem[]>([])
+  const [categories, setCategories] = useState<string[]>(defaultCategories)
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [catLoading, setCatLoading] = useState(false)
+  const [catError, setCatError] = useState('')
+  const [deleteCatConfirm, setDeleteCatConfirm] = useState<string | null>(null)
+  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [filterCat, setFilterCat] = useState('Semua')
+  const [uploading, setUploading] = useState(false)
+  const [imageMode, setImageMode] = useState<'upload' | 'url'>('upload')
+  const [urlInput, setUrlInput] = useState('')
+  const [uploadMessage, setUploadMessage] = useState('')
+  const [userRole, setUserRole] = useState<'admin' | 'cashier'>('admin')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const supabase = createClient()
+
+  const uploadImage = async (file: File): Promise<string | null> => {
+    setUploading(true)
+    setUploadMessage('')
+    try {
+      const ext = file.name.split('.').pop()
+      const fileName = `menu/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`
+      const { data, error } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, file, { cacheControl: '3600', upsert: true })
+
+      if (!error && data) {
+        const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
+        setUploading(false)
+        setUploadMessage('Foto berhasil diupload ke Supabase Storage!')
+        return urlData.publicUrl
+      }
+
+      // Fallback: Read as base64 data URL if storage bucket fails or not configured
+      console.warn('Storage upload error, using direct image data:', error)
+      return new Promise((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => {
+          setUploading(false)
+          setUploadMessage('Foto disimpan via Base64 data.')
+          resolve(reader.result as string)
+        }
+        reader.onerror = () => {
+          setUploading(false)
+          setUploadMessage('Gagal membaca file foto.')
+          resolve(null)
+        }
+        reader.readAsDataURL(file)
+      })
+    } catch (err) {
+      console.error(err)
+      setUploading(false)
+      return null
+    }
+  }
+
+  const fetchItems = async () => {
+    const { data } = await supabase.from('menu_items').select('*').order('category').order('name')
+    if (data) setItems(data)
+    setLoading(false)
+  }
+
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_categories')
+        .select('name')
+        .order('name')
+
+      if (!error && data && data.length > 0) {
+        setCategories(data.map((d: { name: string }) => d.name))
+      } else {
+        // Fallback: collect distinct categories from menu_items and defaultCategories
+        const { data: menuData } = await supabase.from('menu_items').select('category')
+        if (menuData) {
+          const distinct = Array.from(new Set([...defaultCategories, ...menuData.map(m => m.category).filter(Boolean)]))
+          setCategories(distinct)
+        }
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const name = newCatName.trim()
+    if (!name) return
+
+    if (categories.some(c => c.toLowerCase() === name.toLowerCase())) {
+      setCatError('Kategori dengan nama ini sudah ada.')
+      return
+    }
+
+    setCatLoading(true)
+    setCatError('')
+    try {
+      const { error } = await supabase
+        .from('menu_categories')
+        .insert({ name })
+
+      if (error) {
+        console.warn('DB category insert note:', error.message)
+      }
+
+      setCategories(prev => [...prev, name])
+      setNewCatName('')
+    } catch (err: any) {
+      setCatError(err.message || 'Gagal menambahkan kategori.')
+    } finally {
+      setCatLoading(false)
+    }
+  }
+
+  const handleDeleteCategory = async (catName: string) => {
+    const count = items.filter(i => i.category === catName).length
+    if (count > 0) {
+      setCatError(`Kategori "${catName}" masih digunakan oleh ${count} menu. Silakan ubah atau hapus menu tersebut terlebih dahulu sebelum menghapus kategori ini.`)
+      return
+    }
+
+    setCatLoading(true)
+    setCatError('')
+    try {
+      const { error } = await supabase
+        .from('menu_categories')
+        .delete()
+        .eq('name', catName)
+
+      if (error) {
+        console.warn('DB category delete note:', error.message)
+      }
+
+      setCategories(prev => prev.filter(c => c !== catName))
+      if (filterCat === catName) setFilterCat('Semua')
+      if (form.category === catName) {
+        setForm(prev => ({ ...prev, category: categories.find(c => c !== catName) || 'Signature' }))
+      }
+      setDeleteCatConfirm(null)
+    } catch (err: any) {
+      setCatError(err.message || 'Gagal menghapus kategori.')
+    } finally {
+      setCatLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const initData = async () => {
+      fetchItems()
+      fetchCategories()
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+          if (profile?.role) {
+            setUserRole(profile.role as 'admin' | 'cashier')
+          }
+        }
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    initData()
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError('')
+
+    let result
+    if (editingId) {
+      result = await supabase.from('menu_items').update(form).eq('id', editingId)
+    } else {
+      result = await supabase.from('menu_items').insert(form)
+    }
+
+    if (result.error) {
+      setError(result.error.message)
+    } else {
+      setShowForm(false)
+      setEditingId(null)
+      setForm(emptyForm)
+      fetchItems()
+    }
+    setSubmitting(false)
+  }
+
+  const handleEdit = (item: MenuItem) => {
+    setForm({ name: item.name, description: item.description, price: item.price, category: item.category, is_available: item.is_available, image_url: item.image_url })
+    setEditingId(item.id)
+    setShowForm(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    await supabase.from('menu_items').delete().eq('id', id)
+    setDeleteConfirm(null)
+    fetchItems()
+  }
+
+  const toggleAvailable = async (id: string, current: boolean) => {
+    await supabase.from('menu_items').update({ is_available: !current }).eq('id', id)
+    fetchItems()
+  }
+
+  const filtered = filterCat === 'Semua' ? items : items.filter(i => i.category === filterCat)
+
+  const inputStyle = {
+    width: '100%',
+    padding: '0.75rem 1rem',
+    background: 'var(--color-bg-secondary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-md)',
+    color: 'var(--color-text)',
+    fontFamily: 'var(--font-inter)',
+    fontSize: '0.9rem',
+    outline: 'none',
+    transition: 'border-color 0.2s',
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>
+            {userRole === 'cashier' ? 'Ketersediaan Stok Menu' : 'Manajemen Menu'}
+          </h1>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', fontFamily: 'var(--font-inter)' }}>
+            {userRole === 'cashier'
+              ? 'Panel Kasir: Klik tombol status untuk mengubah status menu (Tersedia / Habis)'
+              : 'Kelola item menu, harga, dan ketersediaan coffee shop kamu'}
+          </p>
+        </div>
+        {userRole === 'admin' && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => { setShowCatModal(true); setCatError('') }}
+              className="btn-outline"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+            >
+              <FolderPlus size={16} />
+              Kelola Kategori
+            </button>
+            <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm) }} className="btn-primary">
+              <Plus size={18} />
+              Tambah Menu
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Category Filter */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem', alignItems: 'center' }}>
+        {['Semua', ...categories].map(cat => (
+          <button
+            key={cat}
+            onClick={() => setFilterCat(cat)}
+            style={{
+              padding: '0.4rem 1rem',
+              borderRadius: '50px',
+              border: `1px solid ${filterCat === cat ? 'var(--color-primary)' : 'var(--color-border)'}`,
+              background: filterCat === cat ? 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))' : 'transparent',
+              color: filterCat === cat ? 'white' : 'var(--color-text-muted)',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontWeight: filterCat === cat ? 600 : 400,
+              fontFamily: 'var(--font-inter)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {cat}
+          </button>
+        ))}
+
+        {userRole === 'admin' && (
+          <button
+            onClick={() => { setShowCatModal(true); setCatError('') }}
+            style={{
+              padding: '0.35rem 0.85rem',
+              borderRadius: '50px',
+              border: '1px dashed var(--color-primary)',
+              background: 'var(--color-primary-glow)',
+              color: 'var(--color-primary)',
+              cursor: 'pointer',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              fontFamily: 'var(--font-inter)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s',
+            }}
+            title="Tambah atau Hapus Kategori"
+          >
+            <Plus size={13} /> Atur Kategori
+          </button>
+        )}
+      </div>
+
+      {/* Form Modal */}
+      {showForm && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 500,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: 'var(--color-bg-card)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-xl)',
+            padding: 'clamp(1.25rem, 4vw, 2rem)',
+            width: '100%',
+            maxWidth: '480px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: 'var(--shadow-lg)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.75rem' }}>
+              <h2 style={{ fontSize: '1.2rem' }}>{editingId ? 'Edit Menu' : 'Tambah Menu Baru'}</h2>
+              <button onClick={() => { setShowForm(false); setError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {error && (
+              <div style={{ background: '#e85a4a15', border: '1px solid #e85a4a44', borderRadius: 'var(--radius-md)', padding: '0.75rem 1rem', marginBottom: '1.25rem', fontSize: '0.875rem', color: '#e85a4a', fontFamily: 'var(--font-inter)' }}>
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Nama Menu</label>
+                <input style={inputStyle} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Nama menu" required onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'} />
+              </div>
+
+              {/* Image Upload & URL */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Foto Menu</label>
+                  <div style={{ display: 'flex', gap: '6px', background: 'var(--color-bg)', padding: '2px', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => setImageMode('upload')}
+                      style={{
+                        padding: '3px 10px',
+                        fontSize: '0.75rem',
+                        borderRadius: '4px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: imageMode === 'upload' ? 'var(--color-primary)' : 'transparent',
+                        color: imageMode === 'upload' ? 'white' : 'var(--color-text-muted)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Upload File
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageMode('url')}
+                      style={{
+                        padding: '3px 10px',
+                        fontSize: '0.75rem',
+                        borderRadius: '4px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: imageMode === 'url' ? 'var(--color-primary)' : 'transparent',
+                        color: imageMode === 'url' ? 'white' : 'var(--color-text-muted)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      URL Gambar
+                    </button>
+                  </div>
+                </div>
+
+                {uploadMessage && (
+                  <div style={{ fontSize: '0.78rem', color: '#4a9e6a', marginBottom: '8px', fontFamily: 'var(--font-inter)' }}>
+                    {uploadMessage}
+                  </div>
+                )}
+
+                {imageMode === 'upload' ? (
+                  <>
+                    <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const url = await uploadImage(file)
+                      if (url) setForm({ ...form, image_url: url })
+                    }} />
+                    <div
+                      onClick={() => fileRef.current?.click()}
+                      style={{
+                        border: `2px dashed ${form.image_url ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        overflow: 'hidden',
+                        transition: 'border-color 0.2s',
+                        minHeight: '130px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        position: 'relative',
+                        background: 'var(--color-bg-secondary)',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                      onMouseLeave={e => { if (!form.image_url) e.currentTarget.style.borderColor = 'var(--color-border)' }}
+                    >
+                      {uploading ? (
+                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', fontSize: '0.875rem' }}>
+                          <Upload size={24} style={{ margin: '0 auto 8px', display: 'block', animation: 'pulse 1s infinite' }} />
+                          Mengupload...
+                        </div>
+                      ) : form.image_url ? (
+                        <>
+                          <img src={form.image_url} alt="preview" style={{ width: '100%', height: '170px', objectFit: 'cover' }} />
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setForm({ ...form, image_url: null }) }}
+                            style={{ position: 'absolute', top: '8px', right: '8px', background: '#e85a4a', color: 'white', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            title="Hapus foto"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', padding: '1.5rem' }}>
+                          <ImageIcon size={32} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.4 }} />
+                          <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Klik untuk upload foto menu</span>
+                          <br />
+                          <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>JPG, PNG, WebP (max 5MB)</span>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <input
+                        style={inputStyle}
+                        placeholder="https://images.unsplash.com/... atau URL foto"
+                        value={urlInput}
+                        onChange={e => setUrlInput(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (urlInput.trim()) {
+                            setForm({ ...form, image_url: urlInput.trim() })
+                            setUrlInput('')
+                          }
+                        }}
+                        className="btn-primary"
+                        style={{ padding: '0 1rem', fontSize: '0.85rem', flexShrink: 0 }}
+                      >
+                        Pasang
+                      </button>
+                    </div>
+                    {form.image_url && (
+                      <div style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', height: '140px', border: '1px solid var(--color-border)' }}>
+                        <img src={form.image_url} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, image_url: null })}
+                          style={{ position: 'absolute', top: '8px', right: '8px', background: '#e85a4a', color: 'white', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          title="Hapus foto"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Deskripsi</label>
+                <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Deskripsi menu" required onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Harga (Rp)</label>
+                  <input type="number" style={inputStyle} value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} min={0} required onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Kategori</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowCatModal(true)}
+                      style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'var(--font-inter)', fontWeight: 600 }}
+                    >
+                      + Atur Kategori
+                    </button>
+                  </div>
+                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button type="button" onClick={() => setForm({ ...form, is_available: !form.is_available })} style={{ width: '48px', height: '26px', borderRadius: '13px', background: form.is_available ? 'var(--color-primary)' : 'var(--color-border)', border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.3s', flexShrink: 0 }}>
+                  <span style={{ position: 'absolute', top: '3px', left: form.is_available ? '24px' : '3px', width: '20px', height: '20px', borderRadius: '50%', background: 'white', transition: 'left 0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }} />
+                </button>
+                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontFamily: 'var(--font-inter)' }}>
+                  Menu {form.is_available ? 'Tersedia' : 'Tidak Tersedia'}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button type="button" onClick={() => { setShowForm(false); setError('') }} className="btn-outline" style={{ flex: 1, justifyContent: 'center' }}>Batal</button>
+                <button type="submit" disabled={submitting} className="btn-primary" style={{ flex: 1, justifyContent: 'center', opacity: submitting ? 0.7 : 1 }}>
+                  {submitting ? 'Menyimpan...' : editingId ? 'Perbarui' : 'Tambah'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Management Modal */}
+      {showCatModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.65)',
+          backdropFilter: 'blur(5px)',
+          zIndex: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem',
+        }}>
+          <div style={{
+            background: 'var(--color-bg-card)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-xl)',
+            padding: '1.75rem',
+            width: '100%',
+            maxWidth: '520px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FolderPlus size={20} style={{ color: 'var(--color-primary)' }} />
+                <h3 style={{ fontSize: '1.2rem', fontFamily: 'var(--font-playfair)', margin: 0 }}>
+                  Kelola Kategori Menu
+                </h3>
+              </div>
+              <button
+                onClick={() => { setShowCatModal(false); setCatError('') }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Error banner */}
+            {catError && (
+              <div style={{
+                background: 'rgba(232, 90, 74, 0.12)',
+                border: '1px solid rgba(232, 90, 74, 0.3)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                marginBottom: '1rem',
+                color: '#e85a4a',
+                fontSize: '0.82rem',
+                fontFamily: 'var(--font-inter)',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+              }}>
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>{catError}</span>
+              </div>
+            )}
+
+            {/* Add Category Form */}
+            <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem' }}>
+              <input
+                type="text"
+                value={newCatName}
+                onChange={e => setNewCatName(e.target.value)}
+                placeholder="Nama kategori baru (cth: Mocktail, Dessert)"
+                disabled={catLoading}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-bg-secondary)',
+                  color: 'var(--color-text)',
+                  fontSize: '0.88rem',
+                  fontFamily: 'var(--font-inter)',
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={catLoading || !newCatName.trim()}
+                className="btn-primary"
+                style={{
+                  padding: '9px 16px',
+                  fontSize: '0.85rem',
+                  opacity: (catLoading || !newCatName.trim()) ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Plus size={15} />
+                Tambah
+              </button>
+            </form>
+
+            {/* Category List */}
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Daftar Kategori Saat Ini ({categories.length}):
+            </div>
+
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              paddingRight: '4px',
+              marginBottom: '1.25rem',
+            }}>
+              {categories.map(cat => {
+                const itemCount = items.filter(i => i.category === cat).length
+                const isConfirming = deleteCatConfirm === cat
+
+                return (
+                  <div
+                    key={cat}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      background: 'var(--color-bg-secondary)',
+                      border: '1px solid var(--color-border)',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', fontFamily: 'var(--font-inter)' }}>
+                        {cat}
+                      </span>
+                      <span style={{
+                        marginLeft: '8px',
+                        fontSize: '0.72rem',
+                        color: itemCount > 0 ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                        background: itemCount > 0 ? 'var(--color-primary-glow)' : 'transparent',
+                        padding: '2px 8px',
+                        borderRadius: '50px',
+                        fontFamily: 'var(--font-inter)',
+                      }}>
+                        {itemCount} menu terdaftar
+                      </span>
+                    </div>
+
+                    <div>
+                      {isConfirming ? (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            type="button"
+                            disabled={catLoading}
+                            onClick={() => handleDeleteCategory(cat)}
+                            style={{
+                              background: '#e85a4a',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Hapus
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteCatConfirm(null)}
+                            style={{
+                              background: 'var(--color-bg-card)',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: '6px',
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              color: 'var(--color-text-muted)',
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (itemCount > 0) {
+                              setCatError(`Kategori "${cat}" masih memiliki ${itemCount} menu. Pindahkan menu terlebih dahulu sebelum menghapus kategori ini.`)
+                            } else {
+                              setDeleteCatConfirm(cat)
+                              setCatError('')
+                            }
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: itemCount > 0 ? 'var(--color-text-muted)' : '#e85a4a',
+                            padding: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            opacity: itemCount > 0 ? 0.4 : 1,
+                          }}
+                          title={itemCount > 0 ? 'Kategori memiliki menu' : 'Hapus Kategori'}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Footer */}
+            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => { setShowCatModal(false); setCatError('') }}
+                className="btn-primary"
+                style={{ padding: '8px 20px', fontSize: '0.85rem' }}
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grid */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)' }}>Memuat menu...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '4rem' }}>
+          <Coffee size={48} style={{ color: 'var(--color-text-muted)', margin: '0 auto 1rem', display: 'block', opacity: 0.4 }} />
+          <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '1.5rem' }}>Belum ada menu. Tambah item pertamamu!</p>
+          <button onClick={() => setShowForm(true)} className="btn-primary"><Plus size={18} />Tambah Menu</button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+          {filtered.map(item => (
+            <div
+              key={item.id}
+              style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', transition: 'all 0.3s ease', display: 'flex', flexDirection: 'column' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none' }}
+            >
+              {/* Image Preview */}
+              {item.image_url ? (
+                <div style={{ width: '100%', height: '140px', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '1rem', background: 'var(--color-bg-secondary)' }}>
+                  <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ) : (
+                <div style={{ width: '100%', height: '90px', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', border: '1px dashed var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--color-text-muted)', gap: '6px' }}>
+                  <ImageIcon size={18} style={{ opacity: 0.4 }} />
+                  <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-inter)', opacity: 0.6 }}>Belum ada foto</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '0.72rem', background: 'var(--color-primary-glow)', color: 'var(--color-primary)', padding: '2px 10px', borderRadius: '50px', fontFamily: 'var(--font-inter)', fontWeight: 600, letterSpacing: '0.05em' }}>
+                  {item.category}
+                </span>
+                <button
+                  onClick={() => toggleAvailable(item.id, item.is_available)}
+                  style={{
+                    fontSize: '0.75rem',
+                    background: item.is_available ? 'rgba(74, 158, 106, 0.15)' : 'rgba(232, 90, 74, 0.15)',
+                    color: item.is_available ? '#4a9e6a' : '#e85a4a',
+                    border: `1px solid ${item.is_available ? 'rgba(74, 158, 106, 0.4)' : 'rgba(232, 90, 74, 0.4)'}`,
+                    borderRadius: '50px',
+                    padding: '4px 12px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-inter)',
+                    fontWeight: 600,
+                    transition: 'all 0.2s',
+                  }}
+                  title="Klik untuk ubah ketersediaan menu"
+                >
+                  {item.is_available ? '● Tersedia' : '○ Habis'}
+                </button>
+              </div>
+              <h3 style={{ fontSize: '1rem', marginBottom: '0.4rem' }}>{item.name}</h3>
+              <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: '1rem', fontFamily: 'var(--font-inter)', flex: 1 }}>{item.description}</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-playfair)' }}>
+                  Rp {item.price.toLocaleString('id-ID')}
+                </span>
+                {userRole === 'admin' ? (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => handleEdit(item)} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)' }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}>
+                      <Pencil size={14} />
+                    </button>
+                    {deleteConfirm === item.id ? (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button onClick={() => handleDelete(item.id)} style={{ height: '32px', padding: '0 8px', borderRadius: '8px', background: '#e85a4a', border: 'none', cursor: 'pointer', color: 'white', fontSize: '0.7rem', fontWeight: 600 }}>Hapus</button>
+                        <button onClick={() => setDeleteConfirm(null)} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', cursor: 'pointer', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} /></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setDeleteConfirm(item.id)} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#e85a4a'; e.currentTarget.style.color = '#e85a4a' }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}>
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)' }}>
+                    Klik status untuk ubah
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

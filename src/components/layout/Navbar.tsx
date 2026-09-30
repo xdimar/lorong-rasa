@@ -1,0 +1,340 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { Menu, X, Coffee, User as UserIcon, ShoppingBag, Shield } from 'lucide-react'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { createClient } from '@/lib/supabase/client'
+import { useCart } from '@/components/providers/CartProvider'
+
+export function Navbar() {
+  const [scrolled, setScrolled] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [user, setUser] = useState<{ id?: string; email?: string } | null>(null)
+  const [role, setRole] = useState<string>('user')
+  const pathname = usePathname()
+  const { totalItems, openCart } = useCart()
+
+  const supabase = createClient()
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data } = await supabase.auth.getUser()
+      if (data?.user) {
+        setUser(data.user)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .single()
+        if (profile?.role) setRole(profile.role)
+      } else {
+        setUser(null)
+      }
+    }
+    checkAuth()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single()
+        if (profile?.role) setRole(profile.role)
+      } else {
+        setUser(null)
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/'
+  }
+
+  const navLinks = [
+    { href: '/#home', label: 'Home' },
+    { href: '/menu', label: 'Menu' },
+    { href: '/#about', label: 'Tentang' },
+    { href: '/#voucher', label: 'Voucher' },
+    { href: '/#contact', label: 'Kontak' },
+  ]
+
+  return (
+    <nav
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+        background: scrolled
+          ? 'rgba(var(--color-bg-rgb, 15, 8, 0), 0.92)'
+          : 'transparent',
+        backdropFilter: scrolled ? 'blur(20px)' : 'none',
+        borderBottom: scrolled ? '1px solid var(--color-border)' : 'none',
+        padding: scrolled ? '0.75rem 0' : '1.25rem 0',
+      }}
+    >
+      <div className="container-custom" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* Logo */}
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 15px var(--color-primary-glow)',
+          }}>
+            <Coffee size={20} color="white" />
+          </div>
+          <span style={{
+            fontFamily: 'var(--font-playfair)',
+            fontWeight: 700,
+            fontSize: '1.4rem',
+            background: 'linear-gradient(135deg, var(--color-primary), var(--color-gold))',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+          }}>
+            Lorong Rasa
+          </span>
+        </Link>
+
+        {/* Desktop Nav */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }} className="hidden-mobile">
+          {navLinks.map((link) => {
+            const isActive = pathname === link.href || (link.href === '/menu' && pathname.startsWith('/menu'))
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                style={{
+                  color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                  textDecoration: 'none',
+                  fontWeight: isActive ? 600 : 500,
+                  fontSize: '0.95rem',
+                  fontFamily: 'var(--font-inter)',
+                  transition: 'color 0.2s',
+                  position: 'relative',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-primary)')}
+                onMouseLeave={e => {
+                  if (!isActive) e.currentTarget.style.color = 'var(--color-text-secondary)'
+                }}
+              >
+                {link.label}
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* Right Side */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          {/* Cart Trigger */}
+          <button
+            onClick={openCart}
+            aria-label="Buka Keranjang Belanja"
+            style={{
+              position: 'relative',
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '10px',
+              padding: '8px 10px',
+              cursor: 'pointer',
+              color: 'var(--color-text)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = 'var(--color-primary)'
+              e.currentTarget.style.color = 'var(--color-primary)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'var(--color-border)'
+              e.currentTarget.style.color = 'var(--color-text)'
+            }}
+          >
+            <ShoppingBag size={18} />
+            {totalItems > 0 && (
+              <span style={{
+                background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                color: 'white',
+                borderRadius: '50px',
+                padding: '1px 6px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                fontFamily: 'var(--font-inter)',
+                minWidth: '18px',
+                textAlign: 'center',
+                boxShadow: '0 2px 6px var(--color-primary-glow)',
+              }}>
+                {totalItems}
+              </span>
+            )}
+          </button>
+
+          <ThemeToggle />
+
+          <div className="hidden-mobile" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            {(role === 'admin' || role === 'cashier') && (
+              <Link
+                href={role === 'cashier' ? '/admin/pos' : '/admin'}
+                className="btn-outline"
+                style={{
+                  padding: '0.5rem 0.9rem',
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  borderColor: 'var(--color-primary)',
+                  color: 'var(--color-primary)',
+                }}
+              >
+                <Shield size={14} />
+                {role === 'admin' ? 'Admin' : 'Kasir'}
+              </Link>
+            )}
+            {user ? (
+              <>
+                <Link
+                  href="/profile"
+                  className="btn-outline"
+                  style={{ padding: '0.5rem 1.1rem', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <UserIcon size={15} />
+                  Profil
+                </Link>
+                <button onClick={handleSignOut} className="btn-primary" style={{ padding: '0.5rem 1.1rem', fontSize: '0.88rem' }}>
+                  Keluar
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="btn-outline" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}>
+                  Login
+                </Link>
+                <Link href="/register" className="btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}>
+                  Daftar
+                </Link>
+              </>
+            )}
+          </div>
+          {/* Mobile Menu Toggle */}
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            style={{
+              display: 'none',
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '8px',
+              padding: '7px',
+              cursor: 'pointer',
+              color: 'var(--color-text)',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            className="show-mobile"
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Menu */}
+      {mobileOpen && (
+        <div style={{
+          background: 'var(--color-bg-card)',
+          borderTop: '1px solid var(--color-border)',
+          borderBottom: '1px solid var(--color-border)',
+          padding: '1.25rem 1.5rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.85rem',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+        }}>
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMobileOpen(false)}
+              style={{
+                color: pathname === link.href ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                textDecoration: 'none',
+                fontWeight: pathname === link.href ? 600 : 500,
+                padding: '0.6rem 0',
+                borderBottom: '1px solid var(--color-border-light)',
+                fontFamily: 'var(--font-inter)',
+                fontSize: '1rem',
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
+          {(role === 'admin' || role === 'cashier') && (
+            <Link
+              href={role === 'cashier' ? '/admin/pos' : '/admin'}
+              onClick={() => setMobileOpen(false)}
+              style={{
+                color: 'var(--color-primary)',
+                textDecoration: 'none',
+                fontWeight: 600,
+                padding: '0.6rem 0',
+                borderBottom: '1px solid var(--color-border-light)',
+                fontFamily: 'var(--font-inter)',
+                fontSize: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <Shield size={16} /> {role === 'admin' ? 'Panel Admin' : 'Panel Kasir'}
+            </Link>
+          )}
+          <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+            {user ? (
+              <>
+                <Link href="/profile" onClick={() => setMobileOpen(false)} className="btn-outline" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <UserIcon size={16} /> Profil
+                </Link>
+                <button onClick={handleSignOut} className="btn-primary" style={{ flex: 1, padding: '0.65rem', justifyContent: 'center' }}>Keluar</button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-outline" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center' }}>Login</Link>
+                <Link href="/register" onClick={() => setMobileOpen(false)} className="btn-primary" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center' }}>Daftar</Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        @media (max-width: 768px) {
+          .hidden-mobile { display: none !important; }
+          .show-mobile { display: flex !important; }
+        }
+        @media (min-width: 769px) {
+          .show-mobile { display: none !important; }
+        }
+      `}</style>
+    </nav>
+  )
+}
