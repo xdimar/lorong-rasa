@@ -81,7 +81,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     router.refresh()
   }
 
-  const Sidebar = () => (
+  const renderSidebar = () => (
     <aside style={{
       width: '240px',
       background: 'var(--color-bg-card)',
@@ -253,7 +253,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
       {/* Desktop Sidebar */}
       <div className="admin-sidebar-desktop">
-        <Sidebar />
+        {renderSidebar()}
       </div>
 
       {/* Mobile Sidebar Overlay */}
@@ -273,7 +273,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             background: 'rgba(0,0,0,0.5)',
           }} />
           <div style={{ position: 'relative', zIndex: 1 }}>
-            <Sidebar />
+            {renderSidebar()}
           </div>
         </div>
       )}

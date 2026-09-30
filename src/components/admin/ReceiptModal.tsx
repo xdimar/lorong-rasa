@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Printer, Copy, Check, X, CheckCircle2 } from 'lucide-react'
+import { Printer, Copy, Check, X } from 'lucide-react'
 
 export interface ReceiptOrder {
   id: string
@@ -52,16 +52,20 @@ export function ReceiptModal({
 
   if (!isOpen || !order) return null
 
-  const orderDate = new Date(order.created_at || Date.now())
-  const formattedDate = orderDate.toLocaleDateString('id-ID', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-  const formattedTime = orderDate.toLocaleTimeString('id-ID', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const orderDate = order.created_at ? new Date(order.created_at) : null
+  const formattedDate = orderDate
+    ? orderDate.toLocaleDateString('id-ID', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : '-'
+  const formattedTime = orderDate
+    ? orderDate.toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '-'
 
   const subtotal = items.reduce((acc, it) => acc + (it.subtotal || it.price * it.quantity), 0)
   const discount = order.discount_amount || 0

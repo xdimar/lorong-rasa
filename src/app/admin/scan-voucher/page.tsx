@@ -67,19 +67,33 @@ export default function ScanVoucherPage() {
   const scannerRef = useRef<any>(null)
   const supabase = createClient()
 
-  // Load cashier auth & recent redemptions
-  useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) setCashierUser(user)
-      fetchRecentRedemptions()
+  const stopCamera = async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop()
+        }
+        scannerRef.current.clear()
+      } catch {
+        // ignore
+      }
+      scannerRef.current = null
     }
-    init()
 
-    return () => {
-      stopCamera()
+    // Stop all media tracks if any remain active
+    try {
+      const videoElem = document.querySelector('#qr-reader-view video') as HTMLVideoElement | null
+      if (videoElem && videoElem.srcObject) {
+        const stream = videoElem.srcObject as MediaStream
+        stream.getTracks().forEach(track => track.stop())
+        videoElem.srcObject = null
+      }
+    } catch {
+      // ignore
     }
-  }, [])
+
+    setCameraActive(false)
+  }
 
   const fetchRecentRedemptions = async () => {
     try {
@@ -98,6 +112,20 @@ export default function ScanVoucherPage() {
       console.error(err)
     }
   }
+
+  // Load cashier auth & recent redemptions
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) setCashierUser(user)
+      fetchRecentRedemptions()
+    }
+    init()
+
+    return () => {
+      stopCamera()
+    }
+  }, [])
 
   // Camera Scanner toggle
   const startCamera = async () => {
@@ -148,34 +176,6 @@ export default function ScanVoucherPage() {
         setCameraActive(false)
       }
     }, 150)
-  }
-
-  const stopCamera = async () => {
-    if (scannerRef.current) {
-      try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop()
-        }
-        scannerRef.current.clear()
-      } catch {
-        // ignore
-      }
-      scannerRef.current = null
-    }
-
-    // Stop all media tracks if any remain active
-    try {
-      const videoElem = document.querySelector('#qr-reader-view video') as HTMLVideoElement | null
-      if (videoElem && videoElem.srcObject) {
-        const stream = videoElem.srcObject as MediaStream
-        stream.getTracks().forEach(track => track.stop())
-        videoElem.srcObject = null
-      }
-    } catch {
-      // ignore
-    }
-
-    setCameraActive(false)
   }
 
   // Parse and handle scanned text or manual input

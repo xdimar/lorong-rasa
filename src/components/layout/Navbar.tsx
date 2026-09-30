@@ -308,6 +308,7 @@ export function Navbar() {
               <Shield size={16} /> {role === 'admin' ? 'Panel Admin' : 'Panel Kasir'}
             </Link>
           )}
+
           <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
             {user ? (
               <>
