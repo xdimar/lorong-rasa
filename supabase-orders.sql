@@ -89,9 +89,12 @@ drop policy if exists "Orders insert policy" on public.orders;
 create policy "Orders insert policy"
   on public.orders for insert
   with check (
-    (auth.uid() is not null and user_id = auth.uid())
-    or (auth.uid() is null and user_id is null)
-    or public.is_staff()
+    public.is_staff()
+    or (
+      ((auth.uid() is not null and user_id = auth.uid()) or (auth.uid() is null and user_id is null))
+      and payment_status = 'unpaid'
+      and status = 'pending'
+    )
   );
 
 -- Orders: Staff (kasir & admin) bisa mengubah status & detail pesanan

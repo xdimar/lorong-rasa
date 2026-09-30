@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X, Coffee, User as UserIcon, ShoppingBag, Shield } from 'lucide-react'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
@@ -16,7 +17,8 @@ export function Navbar() {
   const pathname = usePathname()
   const { totalItems, openCart } = useCart()
 
-  const supabase = createClient()
+  // Stable client instance — prevents listener duplication on every render
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20)
@@ -24,38 +26,31 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data } = await supabase.auth.getUser()
-      if (data?.user) {
-        setUser(data.user)
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', data.user.id)
-          .single()
-        if (profile?.role) setRole(profile.role)
-      } else {
-        setUser(null)
-      }
-    }
-    checkAuth()
+  // Single auth listener — onAuthStateChange fires immediately with INITIAL_SESSION
+  // so a separate checkAuth() call is redundant and causes double DB fetches.
+  const fetchRole = useCallback(async (userId: string) => {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+    if (profile?.role) setRole(profile.role)
+  }, [supabase])
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single()
-        if (profile?.role) setRole(profile.role)
-      } else {
-        setUser(null)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event: AuthChangeEvent, session: Session | null) => {
+        if (session?.user) {
+          setUser(session.user)
+          await fetchRole(session.user.id)
+        } else {
+          setUser(null)
+          setRole('user')
+        }
       }
-    })
+    )
     return () => subscription.unsubscribe()
-  }, [])
+  }, [supabase, fetchRole])
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -115,7 +110,7 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop Nav */}
+        {/* Desktop Nav — hover via CSS .navbar-link class, no JS event handlers */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }} className="hidden-mobile">
           {navLinks.map((link) => {
             const isActive = pathname === link.href || (link.href === '/menu' && pathname.startsWith('/menu'))
@@ -123,19 +118,7 @@ export function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                style={{
-                  color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                  textDecoration: 'none',
-                  fontWeight: isActive ? 600 : 500,
-                  fontSize: '0.95rem',
-                  fontFamily: 'var(--font-inter)',
-                  transition: 'color 0.2s',
-                  position: 'relative',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-primary)')}
-                onMouseLeave={e => {
-                  if (!isActive) e.currentTarget.style.color = 'var(--color-text-secondary)'
-                }}
+                className={`navbar-link${isActive ? ' active' : ''}`}
               >
                 {link.label}
               </Link>
@@ -145,31 +128,11 @@ export function Navbar() {
 
         {/* Right Side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          {/* Cart Trigger */}
+          {/* Cart Trigger — hover via CSS .navbar-cart-btn */}
           <button
             onClick={openCart}
             aria-label="Buka Keranjang Belanja"
-            style={{
-              position: 'relative',
-              background: 'var(--color-bg-secondary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '10px',
-              padding: '8px 10px',
-              cursor: 'pointer',
-              color: 'var(--color-text)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.borderColor = 'var(--color-primary)'
-              e.currentTarget.style.color = 'var(--color-primary)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.borderColor = 'var(--color-border)'
-              e.currentTarget.style.color = 'var(--color-text)'
-            }}
+            className="navbar-cart-btn"
           >
             <ShoppingBag size={18} />
             {totalItems > 0 && (
@@ -236,6 +199,7 @@ export function Navbar() {
               </>
             )}
           </div>
+
           {/* Mobile Menu Toggle */}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -312,10 +276,21 @@ export function Navbar() {
           <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
             {user ? (
               <>
-                <Link href="/profile" onClick={() => setMobileOpen(false)} className="btn-outline" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Link
+                  href="/profile"
+                  onClick={() => setMobileOpen(false)}
+                  className="btn-outline"
+                  style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
                   <UserIcon size={16} /> Profil
                 </Link>
-                <button onClick={handleSignOut} className="btn-primary" style={{ flex: 1, padding: '0.65rem', justifyContent: 'center' }}>Keluar</button>
+                <button
+                  onClick={handleSignOut}
+                  className="btn-primary"
+                  style={{ flex: 1, padding: '0.65rem', justifyContent: 'center' }}
+                >
+                  Keluar
+                </button>
               </>
             ) : (
               <>
@@ -326,16 +301,7 @@ export function Navbar() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .hidden-mobile { display: none !important; }
-          .show-mobile { display: flex !important; }
-        }
-        @media (min-width: 769px) {
-          .show-mobile { display: none !important; }
-        }
-      `}</style>
+      {/* Media queries moved to globals.css (.hidden-mobile, .show-mobile) */}
     </nav>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -46,7 +46,8 @@ export default function CheckoutPage() {
   const [authChecked, setAuthChecked] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
 
-  const supabase = createClient()
+  // Stable Supabase client — created once, not on every render
+  const supabase = useMemo(() => createClient(), [])
 
   // Pre-fill user data if logged in
   useEffect(() => {
@@ -190,11 +191,11 @@ export default function CheckoutPage() {
           order_type: orderType,
           table_number: orderType === 'dine_in' ? tableNumber.trim() : null,
           payment_method: paymentMethod,
-          payment_status: paymentMethod === 'qris' ? 'paid' : 'unpaid',
+          payment_status: 'unpaid',
           status: 'pending',
           total_amount: total,
           discount_amount: discount,
-          voucher_code: voucher ? voucher.code : null,
+          voucher_code: voucher && discount > 0 ? voucher.code : null,
           notes: orderNotes.trim() || null,
         })
         .select()
@@ -221,10 +222,11 @@ export default function CheckoutPage() {
 
       if (itemsErr) {
         console.error('Error inserting order items:', itemsErr)
+        throw new Error('Gagal menyimpan detail menu pesanan. Harap hubungi staf atau coba lagi.')
       }
 
-      // 3. If voucher was applied, mark user_vouchers as used
-      if (voucher && userId) {
+      // 3. If voucher was applied and yielded a discount, mark user_vouchers as used
+      if (voucher && discount > 0 && userId) {
         try {
           const { data: existingUv } = await supabase
             .from('user_vouchers')
@@ -311,6 +313,7 @@ export default function CheckoutPage() {
           <div style={{ marginBottom: '1.5rem' }}>
             <Link
               href="/menu"
+              className="nav-back-link"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -321,8 +324,6 @@ export default function CheckoutPage() {
                 fontSize: '0.9rem',
                 transition: 'color 0.2s',
               }}
-              onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
-              onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
             >
               <ArrowLeft size={16} />
               Kembali ke Menu

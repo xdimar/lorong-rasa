@@ -138,6 +138,7 @@ export function CartDrawer() {
               {items.map(item => (
                 <div
                   key={item.id}
+                  className="cart-item-card"
                   style={{
                     background: 'var(--color-bg-card)',
                     border: '1px solid var(--color-border)',
@@ -147,8 +148,6 @@ export function CartDrawer() {
                     gap: '0.85rem',
                     transition: 'border-color 0.2s',
                   }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-border-light)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
                 >
                   {/* Image */}
                   <div style={{
@@ -193,6 +192,7 @@ export function CartDrawer() {
                       </div>
                       <button
                         onClick={() => removeItem(item.id)}
+                        className="cart-trash-btn"
                         style={{
                           background: 'none',
                           border: 'none',
@@ -202,8 +202,6 @@ export function CartDrawer() {
                           flexShrink: 0,
                           transition: 'color 0.2s',
                         }}
-                        onMouseEnter={e => e.currentTarget.style.color = '#e85a4a'}
-                        onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -226,6 +224,7 @@ export function CartDrawer() {
                       }}>
                         <button
                           onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          className="cart-qty-btn"
                           style={{
                             width: '28px',
                             height: '28px',
@@ -238,8 +237,6 @@ export function CartDrawer() {
                             color: 'var(--color-text-secondary)',
                             transition: 'background 0.15s',
                           }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--color-border)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'var(--color-bg-secondary)'}
                         >
                           <Minus size={12} />
                         </button>
@@ -256,6 +253,7 @@ export function CartDrawer() {
                         </span>
                         <button
                           onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          className="cart-qty-btn"
                           style={{
                             width: '28px',
                             height: '28px',
@@ -268,8 +266,6 @@ export function CartDrawer() {
                             color: 'var(--color-text-secondary)',
                             transition: 'background 0.15s',
                           }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--color-border)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'var(--color-bg-secondary)'}
                         >
                           <Plus size={12} />
                         </button>

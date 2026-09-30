@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Info,
 } from 'lucide-react'
+import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 
 interface VoucherData {
@@ -62,7 +63,7 @@ export default function ScanVoucherPage() {
   const [successMsg, setSuccessMsg] = useState('')
   const [currentClaim, setCurrentClaim] = useState<ClaimedVoucher | null>(null)
   const [recentRedemptions, setRecentRedemptions] = useState<ClaimedVoucher[]>([])
-  const [cashierUser, setCashierUser] = useState<any>(null)
+  const [cashierUser, setCashierUser] = useState<SupabaseUser | null>(null)
 
   const scannerRef = useRef<any>(null)
   const supabase = createClient()
@@ -170,7 +171,7 @@ export default function ScanVoucherPage() {
             // ignore frame parse failure
           }
         )
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Camera start error:', err)
         setErrorMsg('Gagal mengakses kamera. Pastikan izin kamera telah diberikan di browser.')
         setCameraActive(false)
@@ -192,16 +193,47 @@ export default function ScanVoucherPage() {
     setCurrentClaim(null)
 
     try {
+      // 1. Search by customer Email if user entered an email
+      if (text.includes('@')) {
+        const { data: profData } = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .ilike('email', text)
+          .maybeSingle()
+
+        if (!profData) {
+          setErrorMsg(`Pengguna dengan email "${text}" tidak ditemukan.`)
+          setLoading(false)
+          return
+        }
+
+        const { data: uvData, error: uvErr } = await supabase
+          .from('user_vouchers')
+          .select('*, vouchers(*)')
+          .eq('user_id', profData.id)
+          .order('claimed_at', { ascending: false })
+
+        if (uvErr || !uvData || uvData.length === 0) {
+          setErrorMsg(`Pengguna ${profData.full_name || profData.email} belum memiliki voucher yang diklaim.`)
+          setLoading(false)
+          return
+        }
+
+        const claim = uvData[0]
+        claim.profiles = profData
+        setCurrentClaim(claim)
+        setLoading(false)
+        return
+      }
+
       let claimId: string | null = null
       let code: string | null = null
-      let userId: string | null = null
 
       if (text.startsWith('VOUCHER_CLAIM:')) {
         // Format: VOUCHER_CLAIM:id|code|userId
         const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
         claimId = parts[0]
         code = parts[1]
-        userId = parts[2]
       } else if (text.startsWith('VOUCHER:')) {
         // Older format fallback: VOUCHER:CODE|...
         const parts = text.replace('VOUCHER:', '').split('|')
@@ -249,7 +281,16 @@ export default function ScanVoucherPage() {
         return
       }
 
-      // Pick first matching record
+      // Guard: If multiple users claimed this promo code, don't pick data[0] blindly
+      if (code && !claimId && data.length > 1) {
+        setErrorMsg(
+          `Ditemukan ${data.length} pelanggan yang mengklaim voucher "${code}". Masukkan email akun pelanggan atau minta scan QR klaim di HP pelanggan untuk memastikan pemilik yang sah.`
+        )
+        setLoading(false)
+        return
+      }
+
+      // Pick the matching record
       const claim = data[0]
 
       // Fetch customer profile
@@ -261,7 +302,7 @@ export default function ScanVoucherPage() {
 
       claim.profiles = profile || null
       setCurrentClaim(claim)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err)
       setErrorMsg('Terjadi kesalahan saat memverifikasi voucher.')
     } finally {
@@ -323,7 +364,7 @@ export default function ScanVoucherPage() {
       setCurrentClaim(updatedClaim)
       setSuccessMsg(`Voucher ${currentClaim.voucher_code} BERHASIL DITUKARKAN untuk pelanggan!`)
       fetchRecentRedemptions()
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Redeem error:', err)
       setErrorMsg('Gagal menukarkan voucher. Periksa koneksi atau izin kasir.')
     } finally {

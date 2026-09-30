@@ -237,8 +237,14 @@ create policy "User vouchers insert policy"
 drop policy if exists "User vouchers update policy" on public.user_vouchers;
 create policy "User vouchers update policy"
   on public.user_vouchers for update
-  using (auth.uid() = user_id or public.is_staff())
-  with check (auth.uid() = user_id or public.is_staff());
+  using (
+    public.is_staff()
+    or (auth.uid() = user_id and status = 'claimed')
+  )
+  with check (
+    public.is_staff()
+    or (auth.uid() = user_id and status = 'used')
+  );
 
 drop policy if exists "User vouchers delete policy" on public.user_vouchers;
 create policy "User vouchers delete policy"

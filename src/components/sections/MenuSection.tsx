@@ -15,6 +15,7 @@ interface MenuItemData {
   price: number
   category: string
   is_available: boolean
+  image_url?: string | null
 }
 
 const iconMap: Record<string, typeof Coffee> = {
@@ -55,6 +56,7 @@ export function MenuSection() {
       name: item.name,
       price: item.price,
       category: item.category,
+      image_url: item.image_url,
     })
     showToast(`${item.name} ditambahkan ke keranjang`, 'cart')
     openCart()

@@ -284,12 +284,14 @@ export default function CashierPOSPage() {
         .select()
         .single()
 
-      if (orderErr) {
+      if (orderErr || !createdOrder) {
         console.error('Order creation error:', orderErr)
-        // Fallback: If table RLS or DB error occurs, simulate local order for smooth cashier operation
+        alert(`Gagal menyimpan pesanan ke database: ${orderErr?.message || 'Koneksi terputus atau sesi tidak valid'}. Pesanan dibatalkan.`)
+        setProcessing(false)
+        return
       }
 
-      const orderId = createdOrder?.id || `WALKIN-${Date.now().toString().slice(-6)}`
+      const orderId = createdOrder.id
 
       // 2. Insert order items
       const itemsPayload = cart.map((c) => ({
@@ -301,8 +303,10 @@ export default function CashierPOSPage() {
         notes: c.notes.trim() || null,
       }))
 
-      if (createdOrder) {
-        await supabase.from('order_items').insert(itemsPayload)
+      const { error: itemsErr } = await supabase.from('order_items').insert(itemsPayload)
+      if (itemsErr) {
+        console.error('Order items insert error:', itemsErr)
+        alert(`Pesanan #${orderId.slice(0, 8)} berhasil dicatat, namun item pesanan gagal tersimpan: ${itemsErr.message}`)
       }
 
       // 3. Prepare Receipt Data

@@ -11,9 +11,19 @@ interface Stats {
   totalMenuItems: number
 }
 
+interface Voucher {
+  id: string
+  code: string
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  min_order: number
+  is_active: boolean
+  expires_at: string
+}
+
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<Stats>({ totalVouchers: 0, activeVouchers: 0, totalUsers: 0, totalMenuItems: 0 })
-  const [recentVouchers, setRecentVouchers] = useState<{ id: string; code: string; discount_type: string; discount_value: number; min_order: number; is_active: boolean; expires_at: string }[]>([])
+  const [recentVouchers, setRecentVouchers] = useState<Voucher[]>([])
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState('')
 

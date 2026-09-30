@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, Tag, AlertCircle, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -48,49 +48,91 @@ export default function MenuAdminPage() {
   const [urlInput, setUrlInput] = useState('')
   const [uploadMessage, setUploadMessage] = useState('')
   const [userRole, setUserRole] = useState<'admin' | 'cashier'>('admin')
+  const [dragOver, setDragOver] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const supabase = createClient()
+  // Stable client — prevents re-instantiation on every render
+  const supabase = useMemo(() => createClient(), [])
 
-  const uploadImage = async (file: File): Promise<string | null> => {
-    setUploading(true)
-    setUploadMessage('')
-    try {
-      const ext = file.name.split('.').pop()
-      const fileName = `menu/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`
-      const { data, error } = await supabase.storage
-        .from('menu-images')
-        .upload(fileName, file, { cacheControl: '3600', upsert: true })
-
-      if (!error && data) {
-        const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
-        setUploading(false)
-        setUploadMessage('Foto berhasil diupload ke Supabase Storage!')
-        return urlData.publicUrl
-      }
-
-      // Fallback: Read as base64 data URL if storage bucket fails or not configured
-      console.warn('Storage upload error, using direct image data:', error)
-      return new Promise((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => {
-          setUploading(false)
-          setUploadMessage('Foto disimpan via Base64 data.')
-          resolve(reader.result as string)
-        }
-        reader.onerror = () => {
-          setUploading(false)
-          setUploadMessage('Gagal membaca file foto.')
-          resolve(null)
-        }
-        reader.readAsDataURL(file)
-      })
-    } catch (err) {
-      console.error(err)
-      setUploading(false)
+  // Returns the public URL of the uploaded image, or null on failure.
+  // Also handles deletion of the previous image from Storage.
+  const uploadImage = useCallback(async (file: File, prevUrl?: string | null): Promise<string | null> => {
+    // --- Validate ---
+    const MAX_SIZE_MB = 5
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setUploadMessage('Format tidak didukung. Gunakan JPG, PNG, WebP, atau GIF.')
       return null
     }
-  }
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      setUploadMessage(`Ukuran file melebihi ${MAX_SIZE_MB}MB. Kompres foto terlebih dahulu.`)
+      return null
+    }
+
+    setUploading(true)
+    setUploadMessage('')
+    setUploadProgress(10)
+
+    try {
+      const ext = file.name.split('.').pop() ?? 'jpg'
+      // Use UUID for collision-free filenames
+      const fileName = `menu/${crypto.randomUUID()}.${ext}`
+
+      setUploadProgress(30)
+
+      const { data, error } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false })
+
+      setUploadProgress(80)
+
+      if (error || !data) {
+        // Fallback: store as base64 data URL when bucket isn't configured yet
+        console.warn('Storage upload error, falling back to base64:', error?.message)
+        return new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            setUploading(false)
+            setUploadProgress(null)
+            setUploadMessage('Foto disimpan sebagai Base64 (bucket belum dikonfigurasi).')
+            resolve(reader.result as string)
+          }
+          reader.onerror = () => {
+            setUploading(false)
+            setUploadProgress(null)
+            setUploadMessage('Gagal membaca file foto.')
+            resolve(null)
+          }
+          reader.readAsDataURL(file)
+        })
+      }
+
+      // Delete previous Storage object to prevent orphaned files
+      if (prevUrl && prevUrl.includes('menu-images')) {
+        try {
+          const pathMatch = prevUrl.match(/menu-images\/(.+)$/)
+          if (pathMatch?.[1]) {
+            await supabase.storage.from('menu-images').remove([pathMatch[1]])
+          }
+        } catch {
+          // Non-fatal — old file cleanup failure should not block the new upload
+        }
+      }
+
+      const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
+      setUploadProgress(100)
+      setUploadMessage('✓ Foto berhasil diupload!')
+      return urlData.publicUrl
+    } catch (err) {
+      console.error(err)
+      setUploadMessage('Terjadi kesalahan saat upload.')
+      return null
+    } finally {
+      setUploading(false)
+      setTimeout(() => setUploadProgress(null), 800)
+    }
+  }, [supabase])
 
   const fetchItems = async () => {
     const { data } = await supabase.from('menu_items').select('*').order('category').order('name')
@@ -111,8 +153,8 @@ export default function MenuAdminPage() {
         // Fallback: collect distinct categories from menu_items and defaultCategories
         const { data: menuData } = await supabase.from('menu_items').select('category')
         if (menuData) {
-          const distinct = Array.from(new Set([...defaultCategories, ...menuData.map(m => m.category).filter(Boolean)]))
-          setCategories(distinct)
+          const distinct = Array.from(new Set([...defaultCategories, ...menuData.map((m: { category?: string }) => m.category).filter(Boolean)]))
+          setCategories(distinct as string[])
         }
       }
     } catch (err) {
@@ -430,51 +472,93 @@ export default function MenuAdminPage() {
 
                 {imageMode === 'upload' ? (
                   <>
-                    <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e) => {
+                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
-                      const url = await uploadImage(file)
-                      if (url) setForm({ ...form, image_url: url })
+                      const url = await uploadImage(file, form.image_url)
+                      if (url) setForm(prev => ({ ...prev, image_url: url }))
+                      // Reset input so same file can be re-selected
+                      e.target.value = ''
                     }} />
                     <div
-                      onClick={() => fileRef.current?.click()}
+                      onClick={() => !uploading && fileRef.current?.click()}
+                      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={async (e) => {
+                        e.preventDefault()
+                        setDragOver(false)
+                        const file = e.dataTransfer.files?.[0]
+                        if (!file) return
+                        const url = await uploadImage(file, form.image_url)
+                        if (url) setForm(prev => ({ ...prev, image_url: url }))
+                      }}
                       style={{
-                        border: `2px dashed ${form.image_url ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        border: `2px dashed ${dragOver ? 'var(--color-primary)' : form.image_url ? 'var(--color-primary)' : 'var(--color-border)'}`,
                         borderRadius: 'var(--radius-md)',
-                        cursor: 'pointer',
+                        cursor: uploading ? 'not-allowed' : 'pointer',
                         overflow: 'hidden',
-                        transition: 'border-color 0.2s',
+                        transition: 'border-color 0.2s, background 0.2s',
                         minHeight: '130px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         position: 'relative',
-                        background: 'var(--color-bg-secondary)',
+                        background: dragOver ? 'var(--color-primary-glow)' : 'var(--color-bg-secondary)',
                       }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
-                      onMouseLeave={e => { if (!form.image_url) e.currentTarget.style.borderColor = 'var(--color-border)' }}
                     >
                       {uploading ? (
-                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', fontSize: '0.875rem' }}>
-                          <Upload size={24} style={{ margin: '0 auto 8px', display: 'block', animation: 'pulse 1s infinite' }} />
-                          Mengupload...
+                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', fontSize: '0.875rem', padding: '1.5rem', width: '100%' }}>
+                          <Upload size={24} style={{ margin: '0 auto 10px', display: 'block', animation: 'float 1s ease-in-out infinite' }} />
+                          <div style={{ marginBottom: '10px' }}>Mengupload...</div>
+                          {uploadProgress !== null && (
+                            <div style={{ width: '80%', margin: '0 auto', height: '6px', background: 'var(--color-border)', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{
+                                height: '100%',
+                                width: `${uploadProgress}%`,
+                                background: 'linear-gradient(90deg, var(--color-primary), var(--color-primary-light))',
+                                borderRadius: '3px',
+                                transition: 'width 0.3s ease',
+                              }} />
+                            </div>
+                          )}
                         </div>
                       ) : form.image_url ? (
                         <>
                           <img src={form.image_url} alt="preview" style={{ width: '100%', height: '170px', objectFit: 'cover' }} />
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setForm({ ...form, image_url: null }) }}
-                            style={{ position: 'absolute', top: '8px', right: '8px', background: '#e85a4a', color: 'white', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            title="Hapus foto"
-                          >
-                            <X size={14} />
-                          </button>
+                          <div style={{ position: 'absolute', bottom: '8px', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}
+                              style={{ background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              title="Ganti foto"
+                            >
+                              <Upload size={12} /> Ganti
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                // Delete from Storage if it's a storage URL
+                                if (form.image_url && form.image_url.includes('menu-images')) {
+                                  const pathMatch = form.image_url.match(/menu-images\/(.+)$/)
+                                  if (pathMatch?.[1]) {
+                                    await supabase.storage.from('menu-images').remove([pathMatch[1]])
+                                  }
+                                }
+                                setForm(prev => ({ ...prev, image_url: null }))
+                                setUploadMessage('')
+                              }}
+                              style={{ background: 'rgba(232,90,74,0.85)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              title="Hapus foto"
+                            >
+                              <X size={12} /> Hapus
+                            </button>
+                          </div>
                         </>
                       ) : (
                         <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', padding: '1.5rem' }}>
                           <ImageIcon size={32} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.4 }} />
-                          <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Klik untuk upload foto menu</span>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{dragOver ? 'Lepaskan untuk upload' : 'Klik atau drag & drop foto'}</span>
                           <br />
                           <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>JPG, PNG, WebP (max 5MB)</span>
                         </div>

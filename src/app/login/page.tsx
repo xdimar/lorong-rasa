@@ -38,6 +38,8 @@ export default function LoginPage() {
 
         if (profile?.role === 'admin') {
           router.push('/admin')
+        } else if (profile?.role === 'cashier') {
+          router.push('/admin/pos')
         } else {
           router.push('/')
         }
@@ -78,18 +80,19 @@ export default function LoginPage() {
         alignItems: 'center',
         zIndex: 100,
       }}>
-        <Link href="/" style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: 'var(--color-text-muted)',
-          textDecoration: 'none',
-          fontSize: '0.875rem',
-          fontFamily: 'var(--font-inter)',
-          transition: 'color 0.2s',
-        }}
-        onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
-        onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+        <Link
+          href="/"
+          className="nav-back-link"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            color: 'var(--color-text-muted)',
+            textDecoration: 'none',
+            fontSize: '0.875rem',
+            fontFamily: 'var(--font-inter)',
+            transition: 'color 0.2s',
+          }}
         >
           <ArrowLeft size={16} />
           Kembali

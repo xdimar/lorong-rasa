@@ -105,9 +105,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
-        (payload) => {
+        (payload: { new: Order }) => {
           if (payload.new) {
-            setOrder(payload.new as Order)
+            setOrder(payload.new)
           }
         }
       )

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 
 export interface CartItem {
   id: string
@@ -111,17 +111,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setVoucher(null)
   }, [])
 
-  const totalItems = items.reduce((sum, i) => sum + i.quantity, 0)
-  const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+  const totalItems = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items])
+  const subtotal = useMemo(() => items.reduce((sum, i) => sum + i.price * i.quantity, 0), [items])
 
-  const discount = (() => {
+  const discount = useMemo(() => {
     if (!voucher) return 0
     if (subtotal < voucher.min_order) return 0
+    let val = 0
     if (voucher.discount_type === 'percentage') {
-      return Math.round(subtotal * voucher.discount_value / 100)
+      val = Math.round(subtotal * voucher.discount_value / 100)
+    } else {
+      val = voucher.discount_value
     }
-    return voucher.discount_value
-  })()
+    return Math.min(val, subtotal)
+  }, [voucher, subtotal])
 
   const total = Math.max(0, subtotal - discount)
 
@@ -138,13 +141,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const closeCart = useCallback(() => setIsCartOpen(false), [])
   const toggleCart = useCallback(() => setIsCartOpen(prev => !prev), [])
 
+  const contextValue = useMemo(() => ({
+    items, addItem, removeItem, updateQuantity, updateNotes, clearCart,
+    totalItems, subtotal, discount, total,
+    voucher, applyVoucher, removeVoucher,
+    isCartOpen, openCart, closeCart, toggleCart,
+  }), [
+    items, addItem, removeItem, updateQuantity, updateNotes, clearCart,
+    totalItems, subtotal, discount, total,
+    voucher, applyVoucher, removeVoucher,
+    isCartOpen, openCart, closeCart, toggleCart,
+  ])
+
   return (
-    <CartContext.Provider value={{
-      items, addItem, removeItem, updateQuantity, updateNotes, clearCart,
-      totalItems, subtotal, discount, total,
-      voucher, applyVoucher, removeVoucher,
-      isCartOpen, openCart, closeCart, toggleCart,
-    }}>
+    <CartContext.Provider value={contextValue}>
       {children}
     </CartContext.Provider>
   )

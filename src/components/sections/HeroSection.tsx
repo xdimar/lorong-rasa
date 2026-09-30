@@ -289,20 +289,7 @@ export function HeroSection() {
         <ArrowDown size={14} />
       </a>
 
-      <style jsx>{`
-        @media (max-width: 900px) {
-          .hero-info-desktop { display: none !important; }
-          .hero-info-mobile { display: flex !important; }
-        }
-        @media (max-width: 640px) {
-          .hero-container {
-            padding: 5.5rem 1rem 3.5rem !important;
-          }
-          .hero-scroll-indicator {
-            display: none !important;
-          }
-        }
-      `}</style>
+      {/* Responsive media queries for .hero-* classes are in globals.css */}
     </section>
   )
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard,
   Tag,
@@ -22,7 +23,7 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 interface NavItemConfig {
   href: string
-  icon: any
+  icon: LucideIcon
   label: string
   roles: ('admin' | 'cashier')[]
 }
@@ -154,33 +155,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               key={href}
               href={href}
               onClick={() => setSidebarOpen(false)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '0.7rem 1rem',
-                borderRadius: 'var(--radius-md)',
-                textDecoration: 'none',
-                background: isActive ? 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))' : 'transparent',
-                color: isActive ? 'white' : 'var(--color-text-secondary)',
-                fontFamily: 'var(--font-inter)',
-                fontWeight: isActive ? 600 : 400,
-                fontSize: '0.9rem',
-                transition: 'all 0.2s ease',
-                boxShadow: isActive ? '0 4px 12px var(--color-primary-glow)' : 'none',
-              }}
-              onMouseEnter={e => {
-                if (!isActive) {
-                  e.currentTarget.style.background = 'var(--color-bg-secondary)'
-                  e.currentTarget.style.color = 'var(--color-primary)'
-                }
-              }}
-              onMouseLeave={e => {
-                if (!isActive) {
-                  e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.color = 'var(--color-text-secondary)'
-                }
-              }}
+              className={`admin-nav-item${isActive ? ' active' : ''}`}
             >
               <Icon size={18} />
               {label}
@@ -198,50 +173,10 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         flexDirection: 'column',
         gap: '0.5rem',
       }}>
-        <Link href="/" style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '0.7rem 1rem',
-          borderRadius: 'var(--radius-md)',
-          textDecoration: 'none',
-          color: 'var(--color-text-muted)',
-          fontFamily: 'var(--font-inter)',
-          fontSize: '0.875rem',
-          transition: 'all 0.2s ease',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.background = 'var(--color-bg-secondary)'
-          e.currentTarget.style.color = 'var(--color-text)'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = 'var(--color-text-muted)'
-        }}
-        >
+        <Link href="/" className="admin-sidebar-back-link">
           ← Kembali ke Website
         </Link>
-        <button
-          onClick={handleSignOut}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '0.7rem 1rem',
-            borderRadius: 'var(--radius-md)',
-            background: 'transparent',
-            color: '#e85a4a',
-            border: 'none',
-            cursor: 'pointer',
-            fontFamily: 'var(--font-inter)',
-            fontSize: '0.875rem',
-            width: '100%',
-            textAlign: 'left',
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = '#e85a4a15'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-        >
+        <button onClick={handleSignOut} className="admin-signout-btn">
           <LogOut size={18} />
           Keluar
         </button>
@@ -325,19 +260,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      <style jsx>{`
-        .admin-main-content {
-          padding: 2rem 1.5rem;
-        }
-        @media (max-width: 768px) {
-          .admin-sidebar-desktop { display: none; }
-          .admin-menu-btn { display: flex !important; }
-          .admin-main-content { padding: 1.25rem 1rem !important; }
-        }
-        @media (min-width: 769px) {
-          .admin-sidebar-mobile { display: none; }
-        }
-      `}</style>
+      {/* Responsive media queries moved to globals.css */}
     </div>
   )
 }

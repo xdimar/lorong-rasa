@@ -40,6 +40,19 @@ interface UserVoucher {
   vouchers?: Voucher
 }
 
+interface UserOrder {
+  id: string
+  created_at: string
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'completed' | 'cancelled'
+  order_type: 'dine_in' | 'takeaway'
+  table_number: string | null
+  payment_method: 'qris' | 'cash'
+  payment_status: 'unpaid' | 'paid'
+  total_amount: number
+  discount_amount: number
+  voucher_code: string | null
+}
+
 const fallbackVouchers: Voucher[] = [
   {
     id: '1',
@@ -83,7 +96,7 @@ export default function ProfilePage() {
   const [claimLoading, setClaimLoading] = useState(false)
   const [claimMessage, setClaimMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [offlineQrModal, setOfflineQrModal] = useState<UserVoucher | null>(null)
-  const [userOrders, setUserOrders] = useState<any[]>([])
+  const [userOrders, setUserOrders] = useState<UserOrder[]>([])
   const [activeTab, setActiveTab] = useState<'vouchers' | 'orders'>('vouchers')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [selectedVoucherQr, setSelectedVoucherQr] = useState<Voucher | null>(null)
