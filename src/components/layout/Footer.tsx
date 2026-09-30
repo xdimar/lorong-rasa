@@ -90,21 +90,23 @@ export function Footer() {
           {/* Links */}
           {[
             {
-              title: 'Menu',
+              title: 'Katalog Menu',
               links: [
-                { href: '#', label: 'Espresso' },
-                { href: '#', label: 'Cold Brew' },
-                { href: '#', label: 'Non Coffee' },
-                { href: '#', label: 'Pastry' },
+                { href: '/menu', label: 'Semua Menu' },
+                { href: '/menu?category=Makanan%20berat', label: 'Makanan Berat' },
+                { href: '/menu?category=Snack', label: 'Snack & Cemilan' },
+                { href: '/menu?category=Coffee%20series', label: 'Coffee Series' },
+                { href: '/menu?category=Milky%20series', label: 'Milky Series' },
               ],
             },
             {
-              title: 'Info',
+              title: 'Layanan & Bantuan',
               links: [
-                { href: '#about', label: 'Tentang Kami' },
-                { href: '#voucher', label: 'Voucher' },
-                { href: '#contact', label: 'Kontak' },
-                { href: '/login', label: 'Login' },
+                { href: '/#about', label: 'Tentang Lorong Rasa' },
+                { href: '/#voucher', label: 'Klaim Voucher Diskon' },
+                { href: '/kebijakan-privasi', label: 'Kebijakan Privasi' },
+                { href: '/syarat-ketentuan', label: 'Syarat & Ketentuan' },
+                { href: '/login', label: 'Login Pelanggan / Kasir' },
               ],
             },
           ].map(col => (
@@ -156,26 +158,37 @@ export function Footer() {
             color: 'var(--color-text-muted)',
             fontFamily: 'var(--font-inter)',
           }}>
-            © {new Date().getFullYear()} Lorong Rasa. All rights reserved.
+            © {new Date().getFullYear()} Lorong Rasa Coffee Shop. All rights reserved.
           </p>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
-            {['Kebijakan Privasi', 'Syarat & Ketentuan'].map(item => (
-              <a
-                key={item}
-                href="#"
-                style={{
-                  fontSize: '0.82rem',
-                  color: 'var(--color-text-muted)',
-                  textDecoration: 'none',
-                  fontFamily: 'var(--font-inter)',
-                  transition: 'color 0.2s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
-                onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
-              >
-                {item}
-              </a>
-            ))}
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+            <Link
+              href="/kebijakan-privasi"
+              style={{
+                fontSize: '0.82rem',
+                color: 'var(--color-text-muted)',
+                textDecoration: 'none',
+                fontFamily: 'var(--font-inter)',
+                transition: 'color 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+            >
+              Kebijakan Privasi
+            </Link>
+            <Link
+              href="/syarat-ketentuan"
+              style={{
+                fontSize: '0.82rem',
+                color: 'var(--color-text-muted)',
+                textDecoration: 'none',
+                fontFamily: 'var(--font-inter)',
+                transition: 'color 0.2s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--color-primary)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+            >
+              Syarat &amp; Ketentuan
+            </Link>
           </div>
         </div>
       </div>

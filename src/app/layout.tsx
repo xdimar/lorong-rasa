@@ -19,13 +19,16 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://lorong-rasa.vercel.app'),
   title: 'Lorong Rasa — Coffee Shop',
   description: 'Temukan cita rasa kopi terbaik di Lorong Rasa. Nikmati suasana hangat, menu pilihan, dan pengalaman kopi yang tak terlupakan.',
-  keywords: 'kopi, coffee shop, lorong rasa, cafe, espresso',
+  keywords: 'kopi, coffee shop, lorong rasa, cafe, espresso, seblak, ayam geprek, pisang pasir',
   openGraph: {
     title: 'Lorong Rasa — Coffee Shop',
-    description: 'Temukan cita rasa kopi terbaik di Lorong Rasa.',
+    description: 'Temukan cita rasa kopi dan kuliner terbaik di Lorong Rasa.',
     type: 'website',
+    url: 'https://lorong-rasa.vercel.app',
+    siteName: 'Lorong Rasa',
   },
 }
 
