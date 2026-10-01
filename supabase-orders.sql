@@ -70,6 +70,46 @@ create trigger tr_order_voucher_usage
   for each row execute procedure public.handle_order_voucher_usage();
 
 -- =============================================
+-- Trigger: Otomatis Tambah Poin Loyalitas Saat Order Selesai
+-- =============================================
+create or replace function public.handle_order_loyalty_points()
+returns trigger as $$
+declare
+  points_to_award integer;
+begin
+  if new.user_id is not null and (new.status = 'completed' or new.payment_status = 'paid') then
+    points_to_award := floor(coalesce(new.total_amount, 0) / 10000);
+    
+    if points_to_award > 0 and not exists (
+      select 1 from public.loyalty_transactions
+      where order_id = new.id and type = 'earned'
+    ) then
+      -- Catat riwayat perolehan poin
+      insert into public.loyalty_transactions (user_id, points, type, description, order_id)
+      values (
+        new.user_id,
+        points_to_award,
+        'earned',
+        'Perolehan poin dari pesanan #' || upper(substring(new.id::text, 1, 8)),
+        new.id
+      );
+
+      -- Tambah saldo poin user
+      update public.profiles
+      set loyalty_points = coalesce(loyalty_points, 0) + points_to_award
+      where id = new.user_id;
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists tr_order_loyalty_points on public.orders;
+create trigger tr_order_loyalty_points
+  after insert or update on public.orders
+  for each row execute procedure public.handle_order_loyalty_points();
+
+-- =============================================
 -- Row Level Security (RLS)
 -- =============================================
 

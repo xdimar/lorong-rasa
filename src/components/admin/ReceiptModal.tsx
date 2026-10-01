@@ -19,6 +19,8 @@ export interface ReceiptOrder {
   created_at: string
   cash_received?: number
   change_amount?: number
+  loyalty_points_earned?: number | null
+  customer_tier?: string | null
 }
 
 export interface ReceiptItem {
@@ -436,6 +438,13 @@ export function ReceiptModal({
                     </div>
                   </>
                 )}
+
+                {order.loyalty_points_earned && order.loyalty_points_earned > 0 ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#1a5f2a', fontWeight: 700, marginTop: '4px' }}>
+                    <span>Poin Rasa Diperoleh:</span>
+                    <span>+{order.loyalty_points_earned} Pts</span>
+                  </div>
+                ) : null}
               </div>
 
               <div style={{ borderTop: '1px dashed #444', margin: '8px 0' }} />

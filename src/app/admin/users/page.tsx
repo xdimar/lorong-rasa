@@ -15,8 +15,16 @@ import {
   UserCheck,
   ArrowUpDown,
   Lock,
+  Coins,
+  Star,
+  Crown,
+  Gift,
+  Plus,
+  Minus,
+  Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getLoyaltyTier } from '@/lib/loyalty'
 
 interface Profile {
   id: string
@@ -24,6 +32,7 @@ interface Profile {
   full_name: string
   role: string
   created_at: string
+  loyalty_points?: number
 }
 
 export default function UsersAdminPage() {
@@ -33,13 +42,19 @@ export default function UsersAdminPage() {
   // Filters & Search
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'cashier' | 'user'>('all')
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name_asc' | 'name_desc' | 'email_asc'>('newest')
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name_asc' | 'name_desc' | 'email_asc' | 'points_desc' | 'points_asc'>('newest')
 
   // Operation states
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<Profile | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Adjust Points states
+  const [adjustPointsUser, setAdjustPointsUser] = useState<Profile | null>(null)
+  const [pointsChange, setPointsChange] = useState<number>(10)
+  const [pointsReason, setPointsReason] = useState<string>('Bonus Pelanggan Setia Lorong Rasa')
+  const [adjustingPoints, setAdjustingPoints] = useState<boolean>(false)
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
@@ -135,6 +150,41 @@ export default function UsersAdminPage() {
     setSortBy('newest')
   }
 
+  // Save adjusted points
+  const handleSaveAdjustPoints = async () => {
+    if (!adjustPointsUser) return
+    setAdjustingPoints(true)
+    try {
+      const currentPts = adjustPointsUser.loyalty_points || 0
+      const newPts = Math.max(0, currentPts + pointsChange)
+
+      // Update profile in DB
+      const { error: pErr } = await supabase
+        .from('profiles')
+        .update({ loyalty_points: newPts })
+        .eq('id', adjustPointsUser.id)
+
+      if (pErr) throw pErr
+
+      // Insert into loyalty_transactions
+      await supabase.from('loyalty_transactions').insert({
+        user_id: adjustPointsUser.id,
+        points: pointsChange,
+        type: pointsChange >= 0 ? 'bonus' : 'adjusted',
+        description: pointsReason.trim() || (pointsChange >= 0 ? 'Bonus poin dari administrator' : 'Penyesuaian saldo poin oleh administrator'),
+      })
+
+      setUsers(prev => prev.map(u => u.id === adjustPointsUser.id ? { ...u, loyalty_points: newPts } : u))
+      showToast('success', `Berhasil! Saldo poin ${adjustPointsUser.full_name || adjustPointsUser.email} kini ${newPts} Poin Rasa.`)
+      setAdjustPointsUser(null)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal menyesuaikan poin'
+      showToast('error', msg)
+    } finally {
+      setAdjustingPoints(false)
+    }
+  }
+
   const isFilterActive = search.trim() !== '' || roleFilter !== 'all' || sortBy !== 'newest'
 
   // Statistics
@@ -171,6 +221,12 @@ export default function UsersAdminPage() {
       }
       if (sortBy === 'oldest') {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      }
+      if (sortBy === 'points_desc') {
+        return (b.loyalty_points || 0) - (a.loyalty_points || 0)
+      }
+      if (sortBy === 'points_asc') {
+        return (a.loyalty_points || 0) - (b.loyalty_points || 0)
       }
       if (sortBy === 'name_asc') {
         const nameA = (a.full_name || a.email || '').toLowerCase()
@@ -431,6 +487,8 @@ export default function UsersAdminPage() {
             >
               <option value="newest">Terbaru Mendaftar</option>
               <option value="oldest">Terlama Mendaftar</option>
+              <option value="points_desc">Poin Tertinggi (Top VIP)</option>
+              <option value="points_asc">Poin Terendah</option>
               <option value="name_asc">Nama (A - Z)</option>
               <option value="name_desc">Nama (Z - A)</option>
               <option value="email_asc">Email (A - Z)</option>
@@ -560,6 +618,7 @@ export default function UsersAdminPage() {
                   <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Pengguna</th>
                   <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Email</th>
                   <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Peran</th>
+                  <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Poin & Member</th>
                   <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>Bergabung</th>
                   <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', textAlign: 'right' }}>Aksi</th>
                 </tr>
@@ -671,6 +730,62 @@ export default function UsersAdminPage() {
                             Pelanggan
                           </span>
                         )}
+                      </td>
+
+                      {/* Loyalty Points & Member Tier */}
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const pts = user.loyalty_points || 0
+                          const tier = getLoyaltyTier(pts)
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                background: tier.bgGlow,
+                                color: tier.color,
+                                border: `1px solid ${tier.borderGlow}`,
+                                borderRadius: '50px',
+                                padding: '2px 8px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                              }}>
+                                {tier.name === 'Gold' ? <Crown size={11} /> : <Star size={11} />}
+                                {tier.name}
+                              </span>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
+                                {pts.toLocaleString('id-ID')} Pts
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setAdjustPointsUser(user)
+                                  setPointsChange(10)
+                                  setPointsReason('Bonus Pelanggan Setia Lorong Rasa')
+                                }}
+                                title="Sesuaikan / Tambah Poin"
+                                style={{
+                                  background: 'var(--color-bg-secondary)',
+                                  border: '1px solid var(--color-border)',
+                                  borderRadius: '6px',
+                                  color: 'var(--color-primary)',
+                                  width: '26px',
+                                  height: '26px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  padding: 0,
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                              >
+                                <Coins size={13} />
+                              </button>
+                            </div>
+                          )
+                        })()}
                       </td>
 
                       {/* Created At */}
@@ -851,6 +966,230 @@ export default function UsersAdminPage() {
               >
                 <Trash2 size={15} />
                 {deletingId ? 'Menghapus...' : 'Ya, Hapus Pengguna'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Points Modal */}
+      {adjustPointsUser && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(5px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={() => !adjustingPoints && setAdjustPointsUser(null)}
+        >
+          <div
+            style={{
+              background: 'var(--color-bg-card)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-xl)',
+              padding: '1.75rem',
+              width: '100%',
+              maxWidth: '460px',
+              position: 'relative',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.25rem' }}>
+              <div style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '12px',
+                background: 'rgba(212, 175, 55, 0.15)',
+                color: 'var(--color-gold)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Coins size={22} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '1.2rem', fontFamily: 'var(--font-playfair)', color: 'var(--color-text)', margin: 0 }}>
+                  Sesuaikan Poin Loyalitas
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  Tambah bonus poin atau sesuaikan saldo member
+                </p>
+              </div>
+              <button
+                disabled={adjustingPoints}
+                onClick={() => setAdjustPointsUser(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Member Info Card */}
+            <div style={{
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.85rem 1rem',
+              fontSize: '0.85rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>
+                  {adjustPointsUser.full_name || 'Tanpa Nama'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                  {adjustPointsUser.email}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Saldo Saat Ini</div>
+                <div style={{ fontWeight: 800, color: 'var(--color-gold)', fontFamily: 'var(--font-playfair)', fontSize: '1.1rem' }}>
+                  {(adjustPointsUser.loyalty_points || 0).toLocaleString('id-ID')} Poin
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Adjust Buttons */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                Pilihan Cepat
+              </label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {[+5, +10, +25, +50, -10].map(val => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setPointsChange(val)}
+                    style={{
+                      background: pointsChange === val ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
+                      color: pointsChange === val ? 'white' : 'var(--color-text)',
+                      border: `1px solid ${pointsChange === val ? 'transparent' : 'var(--color-border)'}`,
+                      borderRadius: '8px',
+                      padding: '5px 12px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {val > 0 ? `+${val}` : val} Poin
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Points Input */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                Jumlah Perubahan Poin (+ untuk nambah, - untuk kurang)
+              </label>
+              <input
+                type="number"
+                value={pointsChange}
+                onChange={e => setPointsChange(parseInt(e.target.value) || 0)}
+                style={{
+                  width: '100%',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.65rem 0.85rem',
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  color: pointsChange >= 0 ? '#4a9e6a' : '#e85a4a',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* Reason */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                Alasan / Catatan Penyesuaian
+              </label>
+              <input
+                type="text"
+                value={pointsReason}
+                onChange={e => setPointsReason(e.target.value)}
+                placeholder="Contoh: Bonus Pelanggan Setia Lorong Rasa"
+                style={{
+                  width: '100%',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.6rem 0.85rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--color-text)',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* Preview new balance */}
+            <div style={{
+              background: 'rgba(212, 175, 55, 0.08)',
+              border: '1px dashed rgba(212, 175, 55, 0.4)',
+              borderRadius: '8px',
+              padding: '0.75rem 1rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '0.85rem',
+            }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Estimasi Saldo Baru:</span>
+              <strong style={{ color: 'var(--color-gold)', fontSize: '1rem', fontFamily: 'var(--font-playfair)' }}>
+                {Math.max(0, (adjustPointsUser.loyalty_points || 0) + pointsChange).toLocaleString('id-ID')} Poin
+              </strong>
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                disabled={adjustingPoints}
+                onClick={() => setAdjustPointsUser(null)}
+                style={{
+                  padding: '0.6rem 1rem',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  cursor: adjustingPoints ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={adjustingPoints || pointsChange === 0}
+                onClick={handleSaveAdjustPoints}
+                className="btn-primary"
+                style={{
+                  padding: '0.6rem 1.25rem',
+                  fontSize: '0.84rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: (adjustingPoints || pointsChange === 0) ? 0.6 : 1,
+                  cursor: (adjustingPoints || pointsChange === 0) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {adjustingPoints ? <Loader2 size={15} className="animate-spin" /> : <Coins size={15} />}
+                {adjustingPoints ? 'Menyimpan...' : 'Simpan Poin'}
               </button>
             </div>
           </div>

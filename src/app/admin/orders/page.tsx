@@ -27,9 +27,11 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ReceiptModal, ReceiptOrder, ReceiptItem } from '@/components/admin/ReceiptModal'
+import { awardLoyaltyPointsForOrder } from '@/lib/loyalty'
 
 interface Order {
   id: string
+  user_id?: string | null
   customer_name: string
   customer_phone: string
   customer_email: string | null
@@ -189,6 +191,20 @@ export default function AdminOrdersPage() {
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null)
       }
+
+      // Berikan Poin Loyalitas jika status selesai & ada user_id
+      if (newStatus === 'completed') {
+        const targetOrder = orders.find(o => o.id === orderId)
+        if (targetOrder?.user_id) {
+          awardLoyaltyPointsForOrder(supabase, orderId, targetOrder.user_id, targetOrder.total_amount).then(res => {
+            if (res.success && res.pointsAwarded > 0) {
+              showToast('success', `Status selesai & +${res.pointsAwarded} Poin Rasa diberikan ke pelanggan!`)
+              return
+            }
+          })
+        }
+      }
+
       showToast('success', `Status pesanan berhasil diubah menjadi ${statusBadgeColors[newStatus]?.label || newStatus}`)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memperbarui status'
@@ -213,6 +229,20 @@ export default function AdminOrdersPage() {
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder(prev => prev ? { ...prev, payment_status: nextStatus as 'unpaid' | 'paid' } : null)
       }
+
+      // Berikan poin loyalitas jika lunas & ada user_id
+      if (nextStatus === 'paid') {
+        const targetOrder = orders.find(o => o.id === orderId)
+        if (targetOrder?.user_id) {
+          awardLoyaltyPointsForOrder(supabase, orderId, targetOrder.user_id, targetOrder.total_amount).then(res => {
+            if (res.success && res.pointsAwarded > 0) {
+              showToast('success', `LUNAS & +${res.pointsAwarded} Poin Rasa tercatat untuk pelanggan!`)
+              return
+            }
+          })
+        }
+      }
+
       showToast('success', `Status pembayaran diubah ke ${nextStatus === 'paid' ? 'LUNAS' : 'BELUM BAYAR'}`)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memperbarui status pembayaran'

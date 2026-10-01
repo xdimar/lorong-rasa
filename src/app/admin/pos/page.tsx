@@ -20,6 +20,13 @@ import {
   List,
   Volume2,
   VolumeX,
+  UserCheck,
+  Coins,
+  Star,
+  Crown,
+  Sparkles,
+  X,
+  User,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { posSound } from '@/lib/sound'
@@ -30,6 +37,7 @@ import {
   defaultMenuItems,
 } from '@/lib/constants/menu'
 import { ReceiptModal, ReceiptOrder, ReceiptItem } from '@/components/admin/ReceiptModal'
+import { calculatePointsEarned, getLoyaltyTier, awardLoyaltyPointsForOrder } from '@/lib/loyalty'
 
 interface CartItem {
   menuItem: MenuItem
@@ -48,6 +56,18 @@ export default function CashierPOSPage() {
 
   // Cashier User Info
   const [cashierName, setCashierName] = useState('Kasir Lorong Rasa')
+
+  // Member Loyalty States
+  const [selectedMember, setSelectedMember] = useState<{
+    id: string
+    full_name: string
+    email: string
+    loyalty_points: number
+  } | null>(null)
+  const [memberModalOpen, setMemberModalOpen] = useState(false)
+  const [memberSearchQuery, setMemberSearchQuery] = useState('')
+  const [memberSearchResults, setMemberSearchResults] = useState<any[]>([])
+  const [memberSearching, setMemberSearching] = useState(false)
 
   // Cart & Order Form States
   const [cart, setCart] = useState<CartItem[]>([])
@@ -309,6 +329,64 @@ export default function CashierPOSPage() {
     setVoucherError('')
   }
 
+  // Member Search Handlers
+  const handleSearchMembers = async (queryText: string) => {
+    setMemberSearchQuery(queryText)
+    if (!queryText.trim()) {
+      setMemberSearchResults([])
+      return
+    }
+    setMemberSearching(true)
+    try {
+      const q = queryText.trim()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, phone, role, loyalty_points')
+        .or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+        .limit(8)
+
+      if (!error && data) {
+        setMemberSearchResults(data)
+      } else {
+        setMemberSearchResults([])
+      }
+    } catch (err) {
+      console.error('Error searching members:', err)
+      setMemberSearchResults([])
+    } finally {
+      setMemberSearching(false)
+    }
+  }
+
+  const handleSelectMember = (member: {
+    id: string
+    full_name?: string | null
+    email?: string | null
+    phone?: string | null
+    loyalty_points?: number | null
+  }) => {
+    setSelectedMember({
+      id: member.id,
+      full_name: member.full_name || 'Member Lorong Rasa',
+      email: member.email || '',
+      loyalty_points: member.loyalty_points ?? 0,
+    })
+    setCustomerName(member.full_name || member.email || 'Pelanggan Member')
+    if (member.phone) {
+      setCustomerPhone(member.phone)
+    }
+    setMemberModalOpen(false)
+    setMemberSearchQuery('')
+    setMemberSearchResults([])
+    posSound.playAddToCart()
+  }
+
+  const handleClearMember = () => {
+    setSelectedMember(null)
+    setCustomerName('Pelanggan Walk-in')
+    setCustomerPhone('')
+  }
+
   // 5. Submit Order & Payment
   const handleProcessOrder = async () => {
     if (cart.length === 0) {
@@ -338,8 +416,11 @@ export default function CashierPOSPage() {
     setProcessing(true)
 
     try {
+      const earnedPoints = calculatePointsEarned(grandTotal)
+
       // 1. Create order record
       const orderPayload = {
+        user_id: selectedMember ? selectedMember.id : null,
         customer_name: customerName.trim() || 'Pelanggan Walk-in',
         customer_phone: customerPhone.trim() || '-',
         order_type: orderType,
@@ -384,7 +465,15 @@ export default function CashierPOSPage() {
         alert(`Pesanan #${orderId.slice(0, 8)} berhasil dicatat, namun item pesanan gagal tersimpan: ${itemsErr.message}`)
       }
 
-      // 3. Prepare Receipt Data
+      // 3. Award Loyalty Points if member is linked
+      if (selectedMember && earnedPoints > 0) {
+        awardLoyaltyPointsForOrder(supabase, orderId, selectedMember.id, grandTotal).catch((err) => {
+          console.error('Failed to award loyalty points:', err)
+        })
+      }
+
+      // 4. Prepare Receipt Data
+      const memberTier = selectedMember ? getLoyaltyTier(selectedMember.loyalty_points) : null
       const receiptOrderData: ReceiptOrder = {
         id: orderId,
         customer_name: orderPayload.customer_name,
@@ -401,6 +490,8 @@ export default function CashierPOSPage() {
         created_at: new Date().toISOString(),
         cash_received: paymentMethod === 'cash' ? cashReceived : grandTotal,
         change_amount: changeAmount,
+        loyalty_points_earned: selectedMember && earnedPoints > 0 ? earnedPoints : undefined,
+        customer_tier: memberTier ? memberTier.name : undefined,
       }
 
       const receiptItemsData: ReceiptItem[] = cart.map((c) => ({
@@ -414,17 +505,19 @@ export default function CashierPOSPage() {
       setLastReceiptOrder(receiptOrderData)
       setLastReceiptItems(receiptItemsData)
 
-      // 4. Success Toast, Audio Chime & Optional Auto-print
+      // 5. Success Toast, Audio Chime & Optional Auto-print
       posSound.playSuccess()
-      setSuccessToast(`Pesanan #${orderId.slice(0, 8).toUpperCase()} Berhasil Diproses!`)
+      const memberNotice = selectedMember && earnedPoints > 0 ? ` (+${earnedPoints} Poin Rasa)` : ''
+      setSuccessToast(`Pesanan #${orderId.slice(0, 8).toUpperCase()} Berhasil Diproses!${memberNotice}`)
       setTimeout(() => setSuccessToast(null), 4000)
 
       if (autoPrintReceipt) {
         setReceiptModalOpen(true)
       }
 
-      // 5. Reset POS for next customer
+      // 6. Reset POS for next customer
       setCart([])
+      setSelectedMember(null)
       setCustomerName('Pelanggan Walk-in')
       setCustomerPhone('')
       setOrderNotes('')
@@ -1188,6 +1281,113 @@ export default function CashierPOSPage() {
             )}
           </div>
 
+          {/* Member Loyalty Link Section */}
+          <div
+            style={{
+              padding: '0.65rem 1.25rem',
+              borderBottom: '1px solid var(--color-border)',
+              background: selectedMember ? 'rgba(212, 175, 55, 0.08)' : 'var(--color-bg-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            {selectedMember ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                <div
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: getLoyaltyTier(selectedMember.loyalty_points).bgGlow,
+                    border: `1px solid ${getLoyaltyTier(selectedMember.loyalty_points).borderGlow}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: getLoyaltyTier(selectedMember.loyalty_points).color,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Crown size={16} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontWeight: 800, fontSize: '0.8rem', color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedMember.full_name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        background: getLoyaltyTier(selectedMember.loyalty_points).bgGlow,
+                        color: getLoyaltyTier(selectedMember.loyalty_points).color,
+                        border: `1px solid ${getLoyaltyTier(selectedMember.loyalty_points).borderGlow}`,
+                      }}
+                    >
+                      {getLoyaltyTier(selectedMember.loyalty_points).name}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--color-gold)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Coins size={11} />
+                    <span>{selectedMember.loyalty_points} Poin</span>
+                    {calculatePointsEarned(grandTotal) > 0 && (
+                      <span style={{ color: '#4a9e6a', fontWeight: 700 }}>
+                        (+{calculatePointsEarned(grandTotal)} Pts baru)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearMember}
+                  title="Lepas Member"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-text-muted)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
+                  <UserCheck size={14} style={{ color: 'var(--color-primary)' }} />
+                  <span>Member VIP Loyalitas</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMemberModalOpen(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: 'rgba(201, 100, 39, 0.12)',
+                    border: '1px solid rgba(201, 100, 39, 0.3)',
+                    color: 'var(--color-primary)',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Sparkles size={12} />
+                  Hubungkan Member
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Customer & Table Inputs */}
           <div
             style={{
@@ -1464,6 +1664,16 @@ export default function CashierPOSPage() {
               </div>
             )}
 
+            {selectedMember && calculatePointsEarned(grandTotal) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--color-gold)', fontWeight: 700 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Coins size={12} />
+                  Poin Didapat
+                </span>
+                <span>+{calculatePointsEarned(grandTotal)} Pts</span>
+              </div>
+            )}
+
             <div
               style={{
                 display: 'flex',
@@ -1718,6 +1928,215 @@ export default function CashierPOSPage() {
         items={lastReceiptItems}
         cashierName={cashierName}
       />
+
+      {/* Modal Hubungkan Member VIP */}
+      {memberModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 999,
+            padding: '1rem',
+          }}
+          onClick={() => setMemberModalOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--color-bg-card)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '460px',
+              padding: '1.25rem',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '10px',
+                    background: 'rgba(201, 100, 39, 0.15)',
+                    color: 'var(--color-primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <UserCheck size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: 'var(--color-text)' }}>
+                    Hubungkan Member VIP
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                    Cari akun member untuk beri poin loyalitas
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMemberModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--color-text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '6px',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Input Search Member */}
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                autoFocus
+                value={memberSearchQuery}
+                onChange={(e) => handleSearchMembers(e.target.value)}
+                placeholder="Ketik nama, email, atau no. HP member..."
+                style={{
+                  width: '100%',
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '8px',
+                  padding: '0.65rem 0.85rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--color-text)',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* Results List */}
+            <div style={{ maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {memberSearching ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                  Mencari member...
+                </div>
+              ) : memberSearchResults.length > 0 ? (
+                memberSearchResults.map((m) => {
+                  const tier = getLoyaltyTier(m.loyalty_points || 0)
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => handleSelectMember(m)}
+                      style={{
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--color-border)',
+                        background: 'var(--color-bg-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--color-primary)'
+                        e.currentTarget.style.background = 'rgba(201, 100, 39, 0.08)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--color-border)'
+                        e.currentTarget.style.background = 'var(--color-bg-secondary)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: tier.bgGlow,
+                            color: tier.color,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.85rem',
+                            fontWeight: 800,
+                          }}
+                        >
+                          {(m.full_name || m.email || 'M').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-text)' }}>
+                            {m.full_name || 'Member Lorong Rasa'}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                            {m.email || m.phone || '-'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div
+                          style={{
+                            display: 'inline-block',
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: tier.bgGlow,
+                            color: tier.color,
+                            border: `1px solid ${tier.borderGlow}`,
+                            marginBottom: '2px',
+                          }}
+                        >
+                          {tier.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-gold)' }}>
+                          {m.loyalty_points || 0} Pts
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : memberSearchQuery.trim() ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                  Tidak ada member ditemukan dengan kata kunci &quot;{memberSearchQuery}&quot;
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+                  Ketik nama atau no. telepon member untuk mencari
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setMemberModalOpen(false)}
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Responsive Stylesheet */}
       <style jsx>{`

@@ -85,6 +85,7 @@ create table if not exists public.profiles (
 -- Pastikan check constraint mendukung role cashier
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check check (role in ('user', 'cashier', 'admin'));
+alter table public.profiles add column if not exists loyalty_points integer not null default 0 check (loyalty_points >= 0);
 
 -- 4. Fungsi otomatis buat profile saat user mendaftar
 create or replace function public.handle_new_user()
@@ -374,3 +375,72 @@ drop policy if exists "Admin delete menu images" on storage.objects;
 create policy "Admin delete menu images"
   on storage.objects for delete
   using (bucket_id = 'menu-images' and public.is_admin());
+
+-- =============================================
+-- 7. Sistem Poin Loyalitas & Kartu Member Digital
+-- =============================================
+
+-- Tabel loyalty_rewards (Katalog Penukaran Poin)
+create table if not exists public.loyalty_rewards (
+  id uuid default gen_random_uuid() primary key,
+  title text not null,
+  description text,
+  points_required integer not null check (points_required > 0),
+  reward_type text not null default 'voucher' check (reward_type in ('voucher', 'free_item', 'discount')),
+  discount_type text check (discount_type in ('percentage', 'fixed')),
+  discount_value numeric default 0,
+  min_order numeric default 0,
+  icon_name text default 'Tag',
+  is_active boolean not null default true,
+  created_at timestamptz default now()
+);
+
+alter table public.loyalty_rewards enable row level security;
+
+drop policy if exists "Loyalty rewards readable by everyone" on public.loyalty_rewards;
+create policy "Loyalty rewards readable by everyone"
+  on public.loyalty_rewards for select using (true);
+
+drop policy if exists "Loyalty rewards manageable by admin" on public.loyalty_rewards;
+create policy "Loyalty rewards manageable by admin"
+  on public.loyalty_rewards for all
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- Tabel loyalty_transactions (Riwayat Perolehan & Penukaran Poin)
+create table if not exists public.loyalty_transactions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users on delete cascade not null,
+  points integer not null, -- positif untuk earned/bonus/adjusted, negatif untuk redeemed
+  type text not null check (type in ('earned', 'redeemed', 'bonus', 'adjusted')),
+  description text not null,
+  order_id uuid references public.orders on delete set null,
+  created_at timestamptz default now()
+);
+
+alter table public.loyalty_transactions enable row level security;
+
+drop policy if exists "Users can read own loyalty transactions" on public.loyalty_transactions;
+create policy "Users can read own loyalty transactions"
+  on public.loyalty_transactions for select
+  using (auth.uid() = user_id or public.is_staff());
+
+drop policy if exists "Users and staff can insert loyalty transactions" on public.loyalty_transactions;
+create policy "Users and staff can insert loyalty transactions"
+  on public.loyalty_transactions for insert
+  with check (auth.uid() = user_id or public.is_staff());
+
+drop policy if exists "Admin can manage loyalty transactions" on public.loyalty_transactions;
+create policy "Admin can manage loyalty transactions"
+  on public.loyalty_transactions for all
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- Seed default loyalty rewards
+insert into public.loyalty_rewards (title, description, points_required, reward_type, discount_type, discount_value, min_order, icon_name)
+values
+  ('Voucher Hemat Rp 10.000', 'Potongan langsung Rp 10.000 untuk pesanan apa pun dengan minimal belanja Rp 35.000.', 15, 'voucher', 'fixed', 10000, 35000, 'Tag'),
+  ('Voucher Diskon 20%', 'Diskon 20% untuk semua menu racikan Lorong Rasa (Min. belanja Rp 45.000).', 25, 'voucher', 'percentage', 20, 45000, 'Percent'),
+  ('Voucher Spesial Rp 25.000', 'Potongan besar Rp 25.000 untuk pesanan dine in maupun takeaway dengan min. belanja Rp 60.000.', 40, 'voucher', 'fixed', 25000, 60000, 'Sparkles'),
+  ('Traktiran Kopi Lorong Rasa (Rp 35.000)', 'Voucher senilai Rp 35.000 setara free minuman signature favoritmu!', 60, 'voucher', 'fixed', 35000, 35000, 'Coffee')
+on conflict do nothing;

@@ -3,12 +3,24 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { User, Mail, Calendar, Edit2, Check, X, Tag, Shield, Coffee, QrCode, Sparkles, ShoppingBag, Clock, ChevronRight, Loader2, AlertCircle, CheckCircle2, Smartphone } from 'lucide-react'
+import {
+  User, Mail, Calendar, Edit2, Check, X, Tag, Shield, Coffee, QrCode, Sparkles,
+  ShoppingBag, Clock, ChevronRight, Loader2, AlertCircle, CheckCircle2,
+  Gift, Award, Coins, History, Percent, Star, Crown, ArrowRight, Copy
+} from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
+import {
+  getLoyaltyTier,
+  getTierProgress,
+  DEFAULT_LOYALTY_REWARDS,
+  redeemLoyaltyReward,
+  type LoyaltyReward,
+  type LoyaltyTransaction,
+} from '@/lib/loyalty'
 
 interface Profile {
   id: string
@@ -16,6 +28,7 @@ interface Profile {
   full_name: string
   role: string
   created_at: string
+  loyalty_points?: number
 }
 
 interface Voucher {
@@ -97,10 +110,21 @@ export default function ProfilePage() {
   const [claimMessage, setClaimMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [offlineQrModal, setOfflineQrModal] = useState<UserVoucher | null>(null)
   const [userOrders, setUserOrders] = useState<UserOrder[]>([])
-  const [activeTab, setActiveTab] = useState<'vouchers' | 'orders'>('vouchers')
+  const [activeTab, setActiveTab] = useState<'vouchers' | 'rewards' | 'points_history' | 'orders'>('vouchers')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [selectedVoucherQr, setSelectedVoucherQr] = useState<Voucher | null>(null)
   const [showMemberCardQr, setShowMemberCardQr] = useState(false)
+
+  // Loyalty Points States
+  const [loyaltyRewards, setLoyaltyRewards] = useState<LoyaltyReward[]>(DEFAULT_LOYALTY_REWARDS)
+  const [loyaltyTransactions, setLoyaltyTransactions] = useState<LoyaltyTransaction[]>([])
+  const [selectedRewardToRedeem, setSelectedRewardToRedeem] = useState<LoyaltyReward | null>(null)
+  const [redeeming, setRedeeming] = useState(false)
+  const [redeemSuccess, setRedeemSuccess] = useState<{
+    voucherCode: string
+    title: string
+    remainingPoints: number
+  } | null>(null)
 
   const supabase = createClient()
 
@@ -114,6 +138,36 @@ export default function ProfilePage() {
       if (data) setUserVouchers(data)
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const fetchLoyaltyData = async (userId: string) => {
+    try {
+      // 1. Fetch rewards catalog
+      const { data: rewardsData } = await supabase
+        .from('loyalty_rewards')
+        .select('*')
+        .eq('is_active', true)
+        .order('points_required', { ascending: true })
+
+      if (rewardsData && rewardsData.length > 0) {
+        setLoyaltyRewards(rewardsData)
+      } else {
+        setLoyaltyRewards(DEFAULT_LOYALTY_REWARDS)
+      }
+
+      // 2. Fetch user's loyalty transactions
+      const { data: txData } = await supabase
+        .from('loyalty_transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+
+      if (txData) {
+        setLoyaltyTransactions(txData)
+      }
+    } catch (err) {
+      console.error('Error fetching loyalty data:', err)
     }
   }
 
@@ -139,11 +193,15 @@ export default function ProfilePage() {
             full_name: user.user_metadata?.full_name || '',
             role: 'user',
             created_at: user.created_at || new Date().toISOString(),
+            loyalty_points: 0,
           })
         }
 
         // Fetch user's claimed vouchers (1 user 1 voucher)
         fetchUserVouchers(user.id)
+
+        // Fetch loyalty data & rewards
+        fetchLoyaltyData(user.id)
 
         // Fetch user's orders
         const { data: ordersData } = await supabase
@@ -163,6 +221,7 @@ export default function ProfilePage() {
     }
     fetchProfile()
   }, [])
+
 
   const handleClaimVoucher = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -264,6 +323,35 @@ export default function ProfilePage() {
   const daysLeft = (expiresAt: string) => {
     const diff = new Date(expiresAt).getTime() - Date.now()
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
+  }
+
+  const handleConfirmRedeem = async () => {
+    if (!profile || !selectedRewardToRedeem) return
+    setRedeeming(true)
+    try {
+      const res = await redeemLoyaltyReward(supabase, profile.id, selectedRewardToRedeem)
+      if (!res.success || !res.voucherCode) {
+        alert(res.error || 'Gagal menukarkan poin.')
+        return
+      }
+
+      const remaining = res.newPoints ?? Math.max(0, (profile.loyalty_points || 0) - selectedRewardToRedeem.points_required)
+      setProfile(prev => prev ? { ...prev, loyalty_points: remaining } : null)
+
+      setRedeemSuccess({
+        voucherCode: res.voucherCode,
+        title: selectedRewardToRedeem.title,
+        remainingPoints: remaining,
+      })
+      setSelectedRewardToRedeem(null)
+      fetchUserVouchers(profile.id)
+      fetchLoyaltyData(profile.id)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Terjadi kendala saat menukarkan poin.'
+      alert(msg)
+    } finally {
+      setRedeeming(false)
+    }
   }
 
   if (loading) {
@@ -440,55 +528,184 @@ export default function ProfilePage() {
                 </div>
               </AnimateOnScroll>
 
-              {/* Quick stats */}
-              <AnimateOnScroll animation="fade-left" delay={100}>
-                <div style={{
-                  background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: '1.5rem',
-                  boxShadow: '0 8px 30px var(--color-primary-glow)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1rem' }}>
-                    <Coffee size={20} color="rgba(255,255,255,0.9)" />
-                    <h3 style={{ fontSize: '0.95rem', color: 'white', fontFamily: 'var(--font-inter)', fontWeight: 600 }}>Lorong Rasa Member</h3>
-                  </div>
-                  <p style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.85)', fontFamily: 'var(--font-inter)', lineHeight: 1.7, marginBottom: '1.25rem' }}>
-                    Kamu adalah bagian dari keluarga besar Lorong Rasa. Nikmati voucher eksklusif dan tunjukkan QR member untuk poin loyalty!
-                  </p>
-                  <button
-                    onClick={() => setShowMemberCardQr(true)}
-                    style={{
-                      width: '100%',
-                      background: 'rgba(255,255,255,0.2)',
-                      border: '1px solid rgba(255,255,255,0.4)',
-                      backdropFilter: 'blur(10px)',
+              {/* Digital Loyalty Member Card */}
+              {(() => {
+                const userPoints = profile.loyalty_points || 0
+                const tierInfo = getLoyaltyTier(userPoints)
+                const progression = getTierProgress(userPoints)
+
+                return (
+                  <AnimateOnScroll animation="fade-left" delay={100}>
+                    <div style={{
+                      background: tierInfo.name === 'Gold'
+                        ? 'linear-gradient(145deg, #1c1305 0%, #2e1c07 60%, #150e04 100%)'
+                        : tierInfo.name === 'Silver'
+                          ? 'linear-gradient(145deg, #181d24 0%, #252d38 60%, #11151a 100%)'
+                          : 'linear-gradient(145deg, #26170d 0%, #3a1e0b 60%, #1a0e05 100%)',
+                      border: `1px solid ${tierInfo.borderGlow}`,
+                      borderRadius: 'var(--radius-xl)',
+                      padding: '1.5rem',
+                      boxShadow: `0 15px 35px rgba(0,0,0,0.4), 0 0 25px ${tierInfo.bgGlow}`,
+                      position: 'relative',
+                      overflow: 'hidden',
                       color: 'white',
-                      borderRadius: '10px',
-                      padding: '10px 16px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      fontFamily: 'var(--font-inter)',
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                  >
-                    <QrCode size={16} />
-                    Kartu Member & QR Barista
-                  </button>
-                </div>
-              </AnimateOnScroll>
+                    }}>
+                      {/* Ambient light ornament */}
+                      <div style={{
+                        position: 'absolute',
+                        top: '-30px',
+                        right: '-30px',
+                        width: '120px',
+                        height: '120px',
+                        borderRadius: '50%',
+                        background: tierInfo.color,
+                        filter: 'blur(40px)',
+                        opacity: 0.25,
+                        pointerEvents: 'none',
+                      }} />
+
+                      {/* Header Card */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.1)',
+                            backdropFilter: 'blur(8px)',
+                            border: `1px solid ${tierInfo.borderGlow}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}>
+                            <Coffee size={18} style={{ color: tierInfo.color }} />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Lorong Rasa Club</span>
+                            <div style={{ fontSize: '0.95rem', fontFamily: 'var(--font-playfair)', fontWeight: 700, color: 'white' }}>Digital Member</div>
+                          </div>
+                        </div>
+
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          background: tierInfo.bgGlow,
+                          border: `1px solid ${tierInfo.borderGlow}`,
+                          color: tierInfo.color,
+                          borderRadius: '50px',
+                          padding: '3px 10px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                        }}>
+                          {tierInfo.name === 'Gold' ? <Crown size={12} /> : <Star size={12} />}
+                          {tierInfo.title}
+                        </div>
+                      </div>
+
+                      {/* Points Balance Banner */}
+                      <div style={{
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        backdropFilter: 'blur(10px)',
+                        borderRadius: '14px',
+                        padding: '1rem',
+                        marginBottom: '1rem',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>Saldo Poin Rasa</div>
+                            <div style={{ fontSize: '1.75rem', fontWeight: 800, fontFamily: 'var(--font-playfair)', color: 'white', lineHeight: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Sparkles size={20} style={{ color: 'var(--color-gold)' }} />
+                              {userPoints.toLocaleString('id-ID')}
+                              <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--color-gold)', fontFamily: 'var(--font-inter)' }}>Poin</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setActiveTab('rewards')}
+                            style={{
+                              background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              padding: '6px 12px',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              boxShadow: '0 4px 12px var(--color-primary-glow)',
+                            }}
+                          >
+                            <Gift size={13} /> Tukar Hadiah
+                          </button>
+                        </div>
+
+                        {/* Progress Bar to next tier */}
+                        {progression.nextTier ? (
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.65)', marginBottom: '4px' }}>
+                              <span>Menuju {progression.nextTier.name}</span>
+                              <span>{progression.pointsNeeded} Poin lagi</span>
+                            </div>
+                            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', overflow: 'hidden' }}>
+                              <div style={{
+                                width: `${progression.progressPercent}%`,
+                                height: '100%',
+                                background: `linear-gradient(90deg, ${tierInfo.color}, var(--color-gold))`,
+                                borderRadius: '10px',
+                                transition: 'width 0.4s ease',
+                              }} />
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--color-gold)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Crown size={12} /> Tingkat VIP Maksimal telah tercapai!
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action QR */}
+                      <button
+                        onClick={() => setShowMemberCardQr(true)}
+                        style={{
+                          width: '100%',
+                          background: 'rgba(255,255,255,0.08)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          backdropFilter: 'blur(10px)',
+                          color: 'white',
+                          borderRadius: '10px',
+                          padding: '9px 14px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          fontFamily: 'var(--font-inter)',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                      >
+                        <QrCode size={15} />
+                        Buka Kartu & QR Kasir
+                      </button>
+                    </div>
+                  </AnimateOnScroll>
+                )
+              })()}
             </div>
 
             {/* Right: Available Vouchers & My Orders Tabs */}
             <div>
               <AnimateOnScroll animation="fade-right">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem', overflowX: 'auto', padding: '0 2px 0.75rem' }}>
                   <button
                     onClick={() => setActiveTab('vouchers')}
                     style={{
@@ -503,12 +720,59 @@ export default function ProfilePage() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
+                      whiteSpace: 'nowrap',
                       fontFamily: 'var(--font-inter)',
                       transition: 'all 0.2s',
                     }}
                   >
                     <Tag size={15} />
-                    Voucher ({userVouchers.length})
+                    Voucher Saya ({userVouchers.length})
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('rewards')}
+                    style={{
+                      background: activeTab === 'rewards' ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
+                      color: activeTab === 'rewards' ? 'white' : 'var(--color-text-secondary)',
+                      border: `1px solid ${activeTab === 'rewards' ? 'transparent' : 'var(--color-border)'}`,
+                      borderRadius: '50px',
+                      padding: '6px 16px',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      fontFamily: 'var(--font-inter)',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <Gift size={15} />
+                    Tukar Poin ({loyaltyRewards.length})
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('points_history')}
+                    style={{
+                      background: activeTab === 'points_history' ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
+                      color: activeTab === 'points_history' ? 'white' : 'var(--color-text-secondary)',
+                      border: `1px solid ${activeTab === 'points_history' ? 'transparent' : 'var(--color-border)'}`,
+                      borderRadius: '50px',
+                      padding: '6px 16px',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      fontFamily: 'var(--font-inter)',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <History size={15} />
+                    Riwayat Poin
                   </button>
 
                   <button
@@ -525,6 +789,7 @@ export default function ProfilePage() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
+                      whiteSpace: 'nowrap',
                       fontFamily: 'var(--font-inter)',
                       transition: 'all 0.2s',
                     }}
@@ -535,7 +800,7 @@ export default function ProfilePage() {
                 </div>
               </AnimateOnScroll>
 
-              {activeTab === 'vouchers' ? (
+              {activeTab === 'vouchers' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   {/* Klaim Voucher Promo Box */}
                   <AnimateOnScroll animation="fade-up">
@@ -780,74 +1045,337 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </div>
-              ) : (
-              /* Orders Tab */
-              userOrders.length === 0 ? (
-                <AnimateOnScroll animation="fade-up">
-                  <div style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '3rem', textAlign: 'center' }}>
-                    <ShoppingBag size={40} style={{ color: 'var(--color-text-muted)', margin: '0 auto 1rem', display: 'block', opacity: 0.3 }} />
-                    <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '1.25rem' }}>Kamu belum memiliki riwayat pesanan.</p>
-                    <Link href="/menu" className="btn-primary" style={{ display: 'inline-flex', padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}>
-                      Pesan Menu Sekarang
-                    </Link>
-                  </div>
-                </AnimateOnScroll>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {userOrders.map((o, idx) => (
-                    <AnimateOnScroll key={o.id} animation="fade-right" delay={idx * 60}>
+              )}
+
+              {/* Rewards (Tukar Poin) Tab */}
+              {activeTab === 'rewards' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Rewards Banner */}
+                  <AnimateOnScroll animation="fade-up">
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.12) 0%, rgba(139, 69, 19, 0.08) 100%)',
+                      border: '1px solid rgba(212, 175, 55, 0.35)',
+                      borderRadius: 'var(--radius-lg)',
+                      padding: '1.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '1rem',
+                      boxShadow: '0 8px 25px rgba(212, 175, 55, 0.06)',
+                    }}>
+                      <div style={{ maxWidth: '520px' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: 'var(--color-gold)', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+                          <Gift size={14} /> Lorong Rasa Rewards
+                        </div>
+                        <h3 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-playfair)', fontWeight: 700, margin: '0 0 6px' }}>Katalog Tukar Poin Rasa</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.6 }}>
+                          Dapatkan 1 Poin Rasa setiap transaksi Rp 10.000. Tukarkan poinmu dengan voucher hemat atau traktiran kopi di bawah ini!
+                        </p>
+                      </div>
+
                       <div style={{
                         background: 'var(--color-bg-card)',
                         border: '1px solid var(--color-border)',
-                        borderRadius: 'var(--radius-lg)',
-                        padding: '1.25rem',
+                        borderRadius: '12px',
+                        padding: '10px 16px',
                         display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.75rem',
+                        alignItems: 'center',
+                        gap: '10px',
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary)' }}>
-                              #{o.id.slice(0, 8).toUpperCase()}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                              {new Date(o.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                            </div>
-                          </div>
-                          <span style={{
-                            padding: '3px 10px',
-                            borderRadius: '50px',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            background: o.status === 'completed' ? 'rgba(74, 158, 106, 0.15)' : 'rgba(232, 160, 74, 0.15)',
-                            color: o.status === 'completed' ? '#4a9e6a' : '#e8a04a',
-                          }}>
-                            {o.status}
-                          </span>
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(212, 175, 55, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Sparkles size={18} style={{ color: 'var(--color-gold)' }} />
                         </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Total Pesanan</div>
-                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
-                              Rp {Number(o.total_amount).toLocaleString('id-ID')}
-                            </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Saldo Poin Kamu</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 800, fontFamily: 'var(--font-playfair)', color: 'var(--color-text)' }}>
+                            {(profile.loyalty_points || 0).toLocaleString('id-ID')} <span style={{ fontSize: '0.8rem', color: 'var(--color-primary)' }}>Poin</span>
                           </div>
-                          <Link
-                            href={`/orders/${o.id}`}
-                            className="btn-outline"
-                            style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            Lihat Struk <ChevronRight size={13} />
-                          </Link>
                         </div>
                       </div>
-                    </AnimateOnScroll>
-                  ))}
+                    </div>
+                  </AnimateOnScroll>
+
+                  {/* Rewards Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                    {loyaltyRewards.map((reward, idx) => {
+                      const userPoints = profile.loyalty_points || 0
+                      const canAfford = userPoints >= reward.points_required
+                      const pointsShort = reward.points_required - userPoints
+
+                      return (
+                        <AnimateOnScroll key={reward.id} animation="fade-up" delay={idx * 60}>
+                          <div style={{
+                            background: 'var(--color-bg-card)',
+                            border: canAfford ? '1px solid rgba(212, 175, 55, 0.4)' : '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-lg)',
+                            padding: '1.5rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            boxShadow: canAfford ? '0 10px 25px rgba(212, 175, 55, 0.08)' : 'none',
+                            position: 'relative',
+                            overflow: 'hidden',
+                          }}>
+                            {canAfford && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '12px',
+                                right: '12px',
+                                background: 'rgba(74, 158, 106, 0.15)',
+                                color: '#4a9e6a',
+                                border: '1px solid rgba(74, 158, 106, 0.3)',
+                                borderRadius: '50px',
+                                padding: '3px 8px',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                              }}>
+                                Siap Ditukar
+                              </div>
+                            )}
+
+                            <div>
+                              <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                                color: 'white',
+                                borderRadius: '8px',
+                                padding: '4px 10px',
+                                fontSize: '0.85rem',
+                                fontWeight: 700,
+                                fontFamily: 'var(--font-playfair)',
+                                marginBottom: '0.75rem',
+                              }}>
+                                <Star size={13} style={{ fill: 'currentColor' }} />
+                                {reward.points_required} Poin
+                              </div>
+
+                              <h4 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-playfair)', color: 'var(--color-text)', margin: '0 0 6px' }}>
+                                {reward.title}
+                              </h4>
+
+                              <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: '0 0 1rem' }}>
+                                {reward.description}
+                              </p>
+                            </div>
+
+                            <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+                                {reward.min_order > 0 ? `Min. transaksi Rp ${reward.min_order.toLocaleString('id-ID')}` : 'Tanpa minimal belanja'}
+                              </div>
+
+                              <button
+                                onClick={() => setSelectedRewardToRedeem(reward)}
+                                disabled={!canAfford}
+                                style={{
+                                  width: '100%',
+                                  padding: '9px 14px',
+                                  borderRadius: '8px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: 600,
+                                  cursor: canAfford ? 'pointer' : 'not-allowed',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                  background: canAfford ? 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))' : 'var(--color-bg-secondary)',
+                                  color: canAfford ? 'white' : 'var(--color-text-muted)',
+                                  border: canAfford ? 'none' : '1px solid var(--color-border)',
+                                  boxShadow: canAfford ? '0 4px 14px var(--color-primary-glow)' : 'none',
+                                  transition: 'all 0.2s',
+                                }}
+                              >
+                                {canAfford ? (
+                                  <>
+                                    <Gift size={15} /> Tukar Sekarang <ArrowRight size={14} />
+                                  </>
+                                ) : (
+                                  <>
+                                    <Tag size={13} /> Butuh {pointsShort} Poin Lagi
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </AnimateOnScroll>
+                      )
+                    })}
+                  </div>
                 </div>
-              )
-            )}
+              )}
+
+              {/* Points History Tab */}
+              {activeTab === 'points_history' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text)', fontFamily: 'var(--font-inter)', margin: 0 }}>
+                      Catatan Mutasi Poin Rasa
+                    </h4>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                      Total {loyaltyTransactions.length} transaksi
+                    </span>
+                  </div>
+
+                  {loyaltyTransactions.length === 0 ? (
+                    <AnimateOnScroll animation="fade-up">
+                      <div style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '3.5rem 1.5rem', textAlign: 'center' }}>
+                        <Coins size={44} style={{ color: 'var(--color-text-muted)', margin: '0 auto 1rem', display: 'block', opacity: 0.3 }} />
+                        <h4 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.4rem' }}>Belum Ada Riwayat Poin</h4>
+                        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', maxWidth: '380px', margin: '0 auto 1.25rem', lineHeight: 1.6 }}>
+                          Setiap kali kamu menyelesaikan pesanan di Lorong Rasa, poin loyalitas akan otomatis tercatat di sini!
+                        </p>
+                        <Link href="/menu" className="btn-primary" style={{ display: 'inline-flex', padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}>
+                          Mulai Belanja & Kumpulkan Poin
+                        </Link>
+                      </div>
+                    </AnimateOnScroll>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {loyaltyTransactions.map((tx, idx) => {
+                        const isPlus = tx.points > 0
+                        return (
+                          <AnimateOnScroll key={tx.id} animation="fade-up" delay={idx * 40}>
+                            <div style={{
+                              background: 'var(--color-bg-card)',
+                              border: '1px solid var(--color-border)',
+                              borderRadius: 'var(--radius-md)',
+                              padding: '1rem 1.25rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '1rem',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  borderRadius: '50%',
+                                  background: isPlus ? 'rgba(74, 158, 106, 0.12)' : 'rgba(232, 90, 74, 0.12)',
+                                  color: isPlus ? '#4a9e6a' : '#e85a4a',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}>
+                                  {isPlus ? <Coins size={18} /> : <Gift size={18} />}
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)', marginBottom: '2px' }}>
+                                    {tx.description}
+                                  </div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                    {new Date(tx.created_at).toLocaleDateString('id-ID', {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })} WIB
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{
+                                  fontSize: '1.1rem',
+                                  fontWeight: 800,
+                                  fontFamily: 'var(--font-playfair)',
+                                  color: isPlus ? '#4a9e6a' : '#e85a4a',
+                                }}>
+                                  {isPlus ? `+${tx.points}` : tx.points} Poin
+                                </div>
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '2px 8px',
+                                  borderRadius: '50px',
+                                  background: 'var(--color-bg-secondary)',
+                                  color: 'var(--color-text-muted)',
+                                  textTransform: 'uppercase',
+                                  fontWeight: 600,
+                                }}>
+                                  {tx.type}
+                                </span>
+                              </div>
+                            </div>
+                          </AnimateOnScroll>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Orders Tab */}
+              {activeTab === 'orders' && (
+                userOrders.length === 0 ? (
+                  <AnimateOnScroll animation="fade-up">
+                    <div style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-lg)', padding: '3rem', textAlign: 'center' }}>
+                      <ShoppingBag size={40} style={{ color: 'var(--color-text-muted)', margin: '0 auto 1rem', display: 'block', opacity: 0.3 }} />
+                      <p style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '1.25rem' }}>Kamu belum memiliki riwayat pesanan.</p>
+                      <Link href="/menu" className="btn-primary" style={{ display: 'inline-flex', padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}>
+                        Pesan Menu Sekarang
+                      </Link>
+                    </div>
+                  </AnimateOnScroll>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {userOrders.map((o, idx) => (
+                      <AnimateOnScroll key={o.id} animation="fade-right" delay={idx * 60}>
+                        <div style={{
+                          background: 'var(--color-bg-card)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-lg)',
+                          padding: '1.25rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.75rem',
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary)' }}>
+                                #{o.id.slice(0, 8).toUpperCase()}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                                {new Date(o.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                              </div>
+                            </div>
+                            <span style={{
+                              padding: '3px 10px',
+                              borderRadius: '50px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              background: o.status === 'completed' ? 'rgba(74, 158, 106, 0.15)' : 'rgba(232, 160, 74, 0.15)',
+                              color: o.status === 'completed' ? '#4a9e6a' : '#e8a04a',
+                            }}>
+                              {o.status}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Total Pesanan</div>
+                              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
+                                Rp {Number(o.total_amount).toLocaleString('id-ID')}
+                              </div>
+                            </div>
+                            <Link
+                              href={`/orders/${o.id}`}
+                              className="btn-outline"
+                              style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              Lihat Struk <ChevronRight size={13} />
+                            </Link>
+                          </div>
+                        </div>
+                      </AnimateOnScroll>
+                    ))}
+                  </div>
+                )
+              )}
             </div>
           </div>
         </div>
@@ -1040,9 +1568,25 @@ export default function ProfilePage() {
                   <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontFamily: 'var(--font-inter)' }}>Email</span>
                   <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)', fontFamily: 'var(--font-inter)' }}>{profile.email}</span>
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontFamily: 'var(--font-inter)' }}>Tingkat Member</span>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    background: getLoyaltyTier(profile.loyalty_points || 0).bgGlow,
+                    color: getLoyaltyTier(profile.loyalty_points || 0).color,
+                    border: `1px solid ${getLoyaltyTier(profile.loyalty_points || 0).borderGlow}`,
+                    padding: '2px 8px',
+                    borderRadius: '50px',
+                    fontWeight: 700,
+                  }}>
+                    {getLoyaltyTier(profile.loyalty_points || 0).title}
+                  </span>
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontFamily: 'var(--font-inter)' }}>Status</span>
-                  <span style={{ fontSize: '0.75rem', background: 'rgba(212, 160, 74, 0.3)', color: 'var(--color-gold)', padding: '2px 8px', borderRadius: '50px', fontWeight: 600 }}>VIP MEMBER</span>
+                  <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', fontFamily: 'var(--font-inter)' }}>Saldo Poin</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-gold)', fontFamily: 'var(--font-inter)' }}>
+                    ⭐ {(profile.loyalty_points || 0).toLocaleString('id-ID')} Poin Rasa
+                  </span>
                 </div>
               </div>
 
@@ -1063,6 +1607,195 @@ export default function ProfilePage() {
               >
                 Selesai
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Redeem Confirmation Modal */}
+        {selectedRewardToRedeem && profile && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.75)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 2000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1rem',
+            }}
+            onClick={() => setSelectedRewardToRedeem(null)}
+          >
+            <div
+              style={{
+                background: 'var(--color-bg-card)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-xl)',
+                padding: '2rem',
+                width: '100%',
+                maxWidth: '440px',
+                position: 'relative',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setSelectedRewardToRedeem(null)}
+                style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+              >
+                <X size={20} />
+              </button>
+
+              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(212, 175, 55, 0.15)', color: 'var(--color-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                <Gift size={24} />
+              </div>
+
+              <h3 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-playfair)', fontWeight: 700, textAlign: 'center', margin: '0 0 0.5rem' }}>
+                Konfirmasi Penukaran Poin
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
+                Apakah kamu ingin menukarkan poin untuk voucher hadiah berikut?
+              </p>
+
+              {/* Reward Detail Box */}
+              <div style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)', marginBottom: '4px' }}>
+                  {selectedRewardToRedeem.title}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem' }}>
+                  {selectedRewardToRedeem.description}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem', fontSize: '0.8rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Biaya Poin:</span>
+                  <span style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{selectedRewardToRedeem.points_required} Poin</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.8rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Saldo Poin Kamu:</span>
+                  <span style={{ fontWeight: 600 }}>{profile.loyalty_points || 0} Poin</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.8rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Sisa Poin Setelahnya:</span>
+                  <span style={{ fontWeight: 700, color: '#4a9e6a' }}>
+                    {Math.max(0, (profile.loyalty_points || 0) - selectedRewardToRedeem.points_required)} Poin
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => setSelectedRewardToRedeem(null)}
+                  disabled={redeeming}
+                  className="btn-outline"
+                  style={{ flex: 1, justifyContent: 'center', padding: '0.75rem' }}
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleConfirmRedeem}
+                  disabled={redeeming}
+                  className="btn-primary"
+                  style={{ flex: 1, justifyContent: 'center', padding: '0.75rem' }}
+                >
+                  {redeeming ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                  {redeeming ? 'Memproses...' : 'Tukar Sekarang'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Redeem Celebration Success Modal */}
+        {redeemSuccess && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.8)',
+              backdropFilter: 'blur(10px)',
+              zIndex: 2000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1rem',
+            }}
+            onClick={() => setRedeemSuccess(null)}
+          >
+            <div
+              style={{
+                background: 'var(--color-bg-card)',
+                border: '1px solid rgba(212, 175, 55, 0.4)',
+                borderRadius: 'var(--radius-xl)',
+                padding: '2.25rem 2rem',
+                width: '100%',
+                maxWidth: '420px',
+                textAlign: 'center',
+                position: 'relative',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.7), 0 0 35px rgba(212, 175, 55, 0.15)',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setRedeemSuccess(null)}
+                style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+              >
+                <X size={20} />
+              </button>
+
+              <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--color-primary), var(--color-gold))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', boxShadow: '0 8px 25px var(--color-primary-glow)' }}>
+                <Sparkles size={30} />
+              </div>
+
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-gold)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                Penukaran Berhasil!
+              </div>
+              <h3 style={{ fontSize: '1.4rem', fontFamily: 'var(--font-playfair)', fontWeight: 700, margin: '0 0 0.5rem' }}>
+                Selamat! Voucher Baru Siap Dipakai
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
+                Voucher untuk <strong>{redeemSuccess.title}</strong> telah otomatis disimpan di dompet akunmu.
+              </p>
+
+              {/* Voucher Code Box */}
+              <div style={{
+                background: 'var(--color-bg-secondary)',
+                border: '2px dashed var(--color-primary)',
+                borderRadius: '12px',
+                padding: '1rem',
+                marginBottom: '1.25rem',
+              }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Kode Voucher Kamu</div>
+                <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.4rem', color: 'var(--color-primary)', letterSpacing: '0.12em' }}>
+                  {redeemSuccess.voucherCode}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                  Sisa Saldo: <strong>{redeemSuccess.remainingPoints} Poin Rasa</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => {
+                    copyCode(redeemSuccess.voucherCode)
+                  }}
+                  className="btn-outline"
+                  style={{ flex: 1, justifyContent: 'center', padding: '0.75rem', fontSize: '0.85rem' }}
+                >
+                  {copiedCode === redeemSuccess.voucherCode ? <Check size={15} /> : <Copy size={15} />}
+                  {copiedCode === redeemSuccess.voucherCode ? 'Tersalin!' : 'Salin Kode'}
+                </button>
+                <button
+                  onClick={() => {
+                    setRedeemSuccess(null)
+                    setActiveTab('vouchers')
+                  }}
+                  className="btn-primary"
+                  style={{ flex: 1, justifyContent: 'center', padding: '0.75rem', fontSize: '0.85rem' }}
+                >
+                  Buka Voucher
+                </button>
+              </div>
             </div>
           </div>
         )}

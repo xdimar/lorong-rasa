@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Loader2,
   Trash2,
+  Sparkles,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
@@ -751,6 +752,28 @@ export default function CheckoutPage() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Loyalty Points Estimate */}
+                  {userId && total >= 10000 && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'rgba(212, 175, 55, 0.08)',
+                      border: '1px solid rgba(212, 175, 55, 0.3)',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      marginBottom: '1.25rem',
+                      fontSize: '0.8rem',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-gold)', fontWeight: 600 }}>
+                        <Sparkles size={14} /> Poin Rasa Diperoleh:
+                      </div>
+                      <span style={{ fontWeight: 700, color: 'var(--color-gold)' }}>
+                        +{Math.floor(total / 10000)} Poin
+                      </span>
+                    </div>
+                  )}
 
                   {errorMsg && (
                     <div style={{ background: '#e85a4a22', border: '1px solid #e85a4a55', borderRadius: '8px', padding: '0.75rem', color: '#e85a4a', fontSize: '0.85rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
