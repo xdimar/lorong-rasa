@@ -9,7 +9,8 @@ interface MenuItem {
   id: string
   name: string
   description: string
-  price: number
+  price: number // Harga Jual Konsumen
+  cost_price?: number // Harga Modal (HPP)
   category: string
   image_url: string | null
   is_available: boolean
@@ -26,7 +27,15 @@ const defaultCategories = [
   'Coffee Series',
   'Mocktail Series',
 ]
-const emptyForm = { name: '', description: '', price: 0, category: 'Makanan Berat', is_available: true, image_url: null as string | null }
+const emptyForm = {
+  name: '',
+  description: '',
+  price: 0,
+  cost_price: 0,
+  category: 'Makanan Berat',
+  is_available: true,
+  image_url: null as string | null
+}
 
 export default function MenuAdminPage() {
   const [items, setItems] = useState<MenuItem[]>([])
@@ -274,15 +283,41 @@ export default function MenuAdminPage() {
     setSubmitting(true)
     setError('')
 
+    const payload = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      price: Number(form.price),
+      cost_price: Number(form.cost_price || 0),
+      category: form.category,
+      is_available: form.is_available,
+      image_url: form.image_url,
+    }
+
     let result
     if (editingId) {
-      result = await supabase.from('menu_items').update(form).eq('id', editingId)
+      result = await supabase.from('menu_items').update(payload).eq('id', editingId)
     } else {
-      result = await supabase.from('menu_items').insert(form)
+      result = await supabase.from('menu_items').insert(payload)
     }
 
     if (result.error) {
-      setError(result.error.message)
+      // If cost_price column does not exist on remote db yet, fallback without it
+      if (result.error.message.includes('cost_price') || result.error.message.includes('column')) {
+        const { cost_price: _removed, ...fallbackPayload } = payload
+        const fallbackRes = editingId
+          ? await supabase.from('menu_items').update(fallbackPayload).eq('id', editingId)
+          : await supabase.from('menu_items').insert(fallbackPayload)
+        if (fallbackRes.error) {
+          setError(fallbackRes.error.message)
+        } else {
+          setShowForm(false)
+          setEditingId(null)
+          setForm(emptyForm)
+          fetchItems()
+        }
+      } else {
+        setError(result.error.message)
+      }
     } else {
       setShowForm(false)
       setEditingId(null)
@@ -293,7 +328,15 @@ export default function MenuAdminPage() {
   }
 
   const handleEdit = (item: MenuItem) => {
-    setForm({ name: item.name, description: item.description, price: item.price, category: item.category, is_available: item.is_available, image_url: item.image_url })
+    setForm({
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      cost_price: item.cost_price || 0,
+      category: item.category,
+      is_available: item.is_available,
+      image_url: item.image_url,
+    })
     setEditingId(item.id)
     setShowForm(true)
   }
@@ -837,26 +880,99 @@ export default function MenuAdminPage() {
                 <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Deskripsi menu" required onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'} />
               </div>
 
+              {/* Input Harga Modal & Harga Jual */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Harga (Rp)</label>
-                  <input type="number" style={inputStyle} value={form.price} onChange={e => setForm({ ...form, price: Number(e.target.value) })} min={0} required onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'} />
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                    Harga Modal / HPP (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    value={form.cost_price}
+                    onChange={e => setForm({ ...form, cost_price: Number(e.target.value) })}
+                    min={0}
+                    placeholder="0"
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '3px' }}>
+                    Biaya bahan baku per porsi
+                  </span>
                 </div>
+
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Kategori</label>
-                    <button
-                      type="button"
-                      onClick={() => setShowCatModal(true)}
-                      style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'var(--font-inter)', fontWeight: 600 }}
-                    >
-                      + Atur Kategori
-                    </button>
-                  </div>
-                  <select style={{ ...inputStyle, cursor: 'pointer' }} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
-                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '6px', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                    Harga Jual Konsumen (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    value={form.price}
+                    onChange={e => setForm({ ...form, price: Number(e.target.value) })}
+                    min={0}
+                    required
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '3px' }}>
+                    Harga tertera di menu
+                  </span>
                 </div>
+              </div>
+
+              {/* Profit Indicator Card */}
+              {form.price > 0 && (
+                <div style={{
+                  background: (form.price - (form.cost_price || 0)) >= 0 ? 'rgba(74, 158, 106, 0.1)' : 'rgba(232, 90, 74, 0.1)',
+                  border: `1px solid ${(form.price - (form.cost_price || 0)) >= 0 ? 'rgba(74, 158, 106, 0.35)' : 'rgba(232, 90, 74, 0.35)'}`,
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.65rem 0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '0.82rem',
+                }}>
+                  <span style={{ color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                    Estimasi Laba per Porsi:
+                  </span>
+                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{
+                      fontWeight: 700,
+                      color: (form.price - (form.cost_price || 0)) >= 0 ? '#4a9e6a' : '#e85a4a',
+                      fontFamily: 'var(--font-inter)',
+                    }}>
+                      {(form.price - (form.cost_price || 0)) >= 0 ? '+' : ''}Rp {(form.price - (form.cost_price || 0)).toLocaleString('id-ID')}
+                    </span>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      background: (form.price - (form.cost_price || 0)) >= 0 ? 'rgba(74, 158, 106, 0.2)' : 'rgba(232, 90, 74, 0.2)',
+                      color: (form.price - (form.cost_price || 0)) >= 0 ? '#4a9e6a' : '#e85a4a',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontWeight: 700,
+                    }}>
+                      {form.price > 0 ? (((form.price - (form.cost_price || 0)) / form.price) * 100).toFixed(0) : 0}% Margin
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Kategori */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-inter)', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Kategori</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowCatModal(true)}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'var(--font-inter)', fontWeight: 600 }}
+                  >
+                    + Atur Kategori
+                  </button>
+                </div>
+                <select style={{ ...inputStyle, cursor: 'pointer' }} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} onFocus={e => e.currentTarget.style.borderColor = 'var(--color-primary)'} onBlur={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1182,11 +1298,40 @@ export default function MenuAdminPage() {
                 </button>
               </div>
               <h3 style={{ fontSize: '1rem', marginBottom: '0.4rem' }}>{item.name}</h3>
-              <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: '1rem', fontFamily: 'var(--font-inter)', flex: 1 }}>{item.description}</p>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
-                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-primary)', fontFamily: 'var(--font-playfair)' }}>
-                  Rp {item.price.toLocaleString('id-ID')}
-                </span>
+              <div style={{
+                marginTop: 'auto',
+                paddingTop: '0.75rem',
+                borderTop: '1px solid var(--color-border-light)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '8px',
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
+                      Rp {item.price.toLocaleString('id-ID')}
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)' }}>
+                      (Jual)
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px', fontSize: '0.73rem' }}>
+                    <span style={{ color: 'var(--color-text-muted)' }}>
+                      Modal: Rp {(item.cost_price || 0).toLocaleString('id-ID')}
+                    </span>
+                    <span style={{
+                      color: (item.price - (item.cost_price || 0)) >= 0 ? '#4a9e6a' : '#e85a4a',
+                      fontWeight: 600,
+                      background: (item.price - (item.cost_price || 0)) >= 0 ? 'rgba(74, 158, 106, 0.12)' : 'rgba(232, 90, 74, 0.12)',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                    }}>
+                      Laba +Rp {(item.price - (item.cost_price || 0)).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                </div>
                 {userRole === 'admin' ? (
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => handleEdit(item)} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', transition: 'all 0.2s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)' }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}>

@@ -40,8 +40,11 @@ create table if not exists public.order_items (
   price numeric not null check (price >= 0),
   subtotal numeric not null check (subtotal >= 0),
   notes text,
+  cost_price numeric default 0,
   created_at timestamptz default now()
 );
+
+alter table public.order_items add column if not exists cost_price numeric default 0;
 
 -- =============================================
 -- Trigger: Otomatis Update Kuota Voucher Saat Order Dibuat
