@@ -73,12 +73,14 @@ export function Navbar() {
         left: 0,
         right: 0,
         zIndex: 1000,
-        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+        transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
         background: scrolled
-          ? 'rgba(var(--color-bg-rgb, 15, 8, 0), 0.92)'
+          ? 'var(--color-navbar-bg, rgba(var(--color-bg-rgb, 253, 248, 243), 0.88))'
           : 'transparent',
+        WebkitBackdropFilter: scrolled ? 'blur(20px)' : 'none',
         backdropFilter: scrolled ? 'blur(20px)' : 'none',
         borderBottom: scrolled ? '1px solid var(--color-border)' : 'none',
+        boxShadow: scrolled ? 'var(--shadow-sm)' : 'none',
         padding: scrolled ? '0.75rem 0' : '1.25rem 0',
       }}
     >

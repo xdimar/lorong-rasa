@@ -4,6 +4,8 @@
   :root {
     /* Warm Amber & Brown - Light Mode */
     --color-bg: #fdf8f3;
+    --color-bg-rgb: 253, 248, 243;
+    --color-navbar-bg: rgba(253, 248, 243, 0.88);
     --color-bg-secondary: #f5ede0;
     --color-bg-card: #ffffff;
     --color-surface: #fffaf5;
@@ -40,6 +42,8 @@
   .dark {
     /* Warm Amber & Brown - Dark Mode */
     --color-bg: #0f0800;
+    --color-bg-rgb: 15, 8, 0;
+    --color-navbar-bg: rgba(15, 8, 0, 0.88);
     --color-bg-secondary: #1a1000;
     --color-bg-card: #1e1200;
     --color-surface: #150d00;
