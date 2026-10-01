@@ -3,9 +3,12 @@ export interface MenuItem {
   name: string
   description: string
   price: number
+  cost_price?: number
   category: string
   image_url: string | null
   is_available: boolean
+  rating_avg?: number
+  rating_count?: number
 }
 
 export const defaultCategories = [

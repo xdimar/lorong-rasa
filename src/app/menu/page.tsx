@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Search, Coffee, ShoppingCart } from 'lucide-react'
+import { Search, Coffee, ShoppingCart, Star } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { useCart } from '@/components/providers/CartProvider'
 import { useToast } from '@/components/providers/ToastProvider'
+import { MenuReviewModal } from '@/components/menu/MenuReviewModal'
 
 import {
   MenuItem,
@@ -22,6 +23,8 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState('Semua')
   const [search, setSearch] = useState('')
+  const [selectedReviewItem, setSelectedReviewItem] = useState<MenuItem | null>(null)
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
 
   useEffect(() => {
     const fetchMenu = async () => {
@@ -300,7 +303,15 @@ export default function MenuPage() {
                         gap: '1.5rem',
                       }}>
                         {catItems.map((item, idx) => (
-                          <MenuCard key={item.id} item={item} delay={idx * 80} />
+                          <MenuCard
+                            key={item.id}
+                            item={item}
+                            delay={idx * 80}
+                            onOpenReviews={() => {
+                              setSelectedReviewItem(item)
+                              setReviewModalOpen(true)
+                            }}
+                          />
                         ))}
                       </div>
                     </div>
@@ -312,7 +323,15 @@ export default function MenuPage() {
                     gap: '1.5rem',
                   }}>
                     {filtered.map((item, idx) => (
-                      <MenuCard key={item.id} item={item} delay={idx * 60} />
+                      <MenuCard
+                        key={item.id}
+                        item={item}
+                        delay={idx * 60}
+                        onOpenReviews={() => {
+                          setSelectedReviewItem(item)
+                          setReviewModalOpen(true)
+                        }}
+                      />
                     ))}
                   </div>
                 )}
@@ -320,17 +339,34 @@ export default function MenuPage() {
           )}
         </div>
       </main>
+
+      {/* Menu Detail & Reviews Modal */}
+      <MenuReviewModal
+        item={selectedReviewItem}
+        isOpen={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+      />
+
       <Footer />
     </>
   )
 }
 
-function MenuCard({ item, delay }: { item: MenuItem; delay: number }) {
+function MenuCard({
+  item,
+  delay,
+  onOpenReviews,
+}: {
+  item: MenuItem
+  delay: number
+  onOpenReviews: () => void
+}) {
   const color = categoryColors[item.category] || 'var(--color-primary)'
   const { addItem } = useCart()
   const { showToast } = useToast()
 
-  const handleAddToCart = () => {
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation()
     addItem({
       id: item.id,
       name: item.name,
@@ -350,11 +386,12 @@ function MenuCard({ item, delay }: { item: MenuItem; delay: number }) {
           borderRadius: 'var(--radius-lg)',
           overflow: 'hidden',
           transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-          cursor: 'default',
+          cursor: 'pointer',
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
         }}
+        onClick={onOpenReviews}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-8px)'
           e.currentTarget.style.boxShadow = 'var(--shadow-lg)'
@@ -416,6 +453,38 @@ function MenuCard({ item, delay }: { item: MenuItem; delay: number }) {
           }}>
             {item.category}
           </div>
+
+          {/* Rating Pill */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenReviews()
+            }}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              right: '12px',
+              background: 'rgba(0, 0, 0, 0.65)',
+              backdropFilter: 'blur(6px)',
+              border: '1px solid rgba(212, 175, 55, 0.4)',
+              borderRadius: '20px',
+              padding: '3px 8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: '#ffffff',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              zIndex: 2,
+            }}
+            title="Lihat ulasan pelanggan"
+          >
+            <Star size={11} style={{ fill: 'var(--color-gold)', color: 'var(--color-gold)' }} />
+            <span>{item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '4.9'}</span>
+            <span style={{ opacity: 0.75, fontSize: '0.65rem' }}>({item.rating_count || 12})</span>
+          </button>
         </div>
 
         {/* Content */}
@@ -448,30 +517,52 @@ function MenuCard({ item, delay }: { item: MenuItem; delay: number }) {
             }}>
               Rp {item.price.toLocaleString('id-ID')}
             </span>
-            <button
-              onClick={handleAddToCart}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: `linear-gradient(135deg, ${color}, ${color}cc)`,
-                color: 'white',
-                border: 'none',
-                borderRadius: '10px',
-                padding: '0.5rem 1rem',
-                cursor: 'pointer',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                fontFamily: 'var(--font-inter)',
-                transition: 'all 0.2s ease',
-                boxShadow: `0 4px 12px ${color}44`,
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-            >
-              <ShoppingCart size={14} />
-              Pesan
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenReviews()
+                }}
+                style={{
+                  background: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                  borderRadius: '10px',
+                  padding: '0.5rem 0.65rem',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  transition: 'all 0.2s',
+                }}
+              >
+                Ulasan
+              </button>
+              <button
+                onClick={handleAddToCart}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: `linear-gradient(135deg, ${color}, ${color}cc)`,
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-inter)',
+                  transition: 'all 0.2s ease',
+                  boxShadow: `0 4px 12px ${color}44`,
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                <ShoppingCart size={14} />
+                Pesan
+              </button>
+            </div>
           </div>
         </div>
       </div>

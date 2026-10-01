@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Coffee, Thermometer, Leaf, Zap, ShoppingCart } from 'lucide-react'
+import { Coffee, Thermometer, Leaf, Zap, ShoppingCart, Star } from 'lucide-react'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
 import { useToast } from '@/components/providers/ToastProvider'
+import { MenuReviewModal } from '@/components/menu/MenuReviewModal'
+import { MenuItem } from '@/lib/constants/menu'
 
 interface MenuItemData {
   id: string
@@ -16,6 +18,8 @@ interface MenuItemData {
   category: string
   is_available: boolean
   image_url?: string | null
+  rating_avg?: number
+  rating_count?: number
 }
 
 const iconMap: Record<string, typeof Coffee> = {
@@ -47,6 +51,8 @@ const fallbackMenuItems: MenuItemData[] = [
 
 export function MenuSection() {
   const [menuItems, setMenuItems] = useState<MenuItemData[]>(fallbackMenuItems)
+  const [selectedReviewItem, setSelectedReviewItem] = useState<MenuItem | null>(null)
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const { addItem, openCart } = useCart()
   const { showToast } = useToast()
 

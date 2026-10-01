@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 
 export interface CartItem {
   id: string
@@ -49,6 +49,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [voucher, setVoucher] = useState<AppliedVoucher | null>(null)
   const [isCartOpen, setIsCartOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+
+  // Ref to always have latest items for applyVoucher (avoids stale closure)
+  const itemsRef = useRef<CartItem[]>([])
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -129,11 +135,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const total = Math.max(0, subtotal - discount)
 
   const applyVoucher = useCallback((v: AppliedVoucher): boolean => {
-    const currentSubtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    const currentSubtotal = itemsRef.current.reduce((sum, i) => sum + i.price * i.quantity, 0)
     if (currentSubtotal < v.min_order) return false
     setVoucher(v)
     return true
-  }, [items])
+  }, [])
 
   const removeVoucher = useCallback(() => setVoucher(null), [])
 
