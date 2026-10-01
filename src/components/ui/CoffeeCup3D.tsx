@@ -43,18 +43,18 @@ export function CoffeeCup3D({
   // Helper to generate procedural latte art / liquid texture
   const createLiquidTexture = (type: string): THREE.CanvasTexture => {
     const canvas = document.createElement('canvas')
-    canvas.width = 512
-    canvas.height = 512
+    canvas.width = 256
+    canvas.height = 256
     const ctx = canvas.getContext('2d')
     if (!ctx) return new THREE.CanvasTexture(canvas)
 
-    const centerX = 256
-    const centerY = 256
-    const radius = 250
+    const centerX = 128
+    const centerY = 128
+    const radius = 124
 
     if (type === 'kyoto-matcha-fusion') {
       // --- Kyoto Matcha Texture ---
-      const grad = ctx.createRadialGradient(centerX, centerY, 30, centerX, centerY, radius)
+      const grad = ctx.createRadialGradient(centerX, centerY, 15, centerX, centerY, radius)
       grad.addColorStop(0, '#86c268')
       grad.addColorStop(0.4, '#5d9c42')
       grad.addColorStop(0.75, '#3b6e27')
@@ -66,21 +66,21 @@ export function CoffeeCup3D({
 
       // Frothy matcha swirl & crema foam
       ctx.strokeStyle = 'rgba(235, 252, 225, 0.85)'
-      ctx.lineWidth = 14
+      ctx.lineWidth = 7
       ctx.beginPath()
-      ctx.arc(centerX, centerY, 130, 0.2 * Math.PI, 1.8 * Math.PI)
+      ctx.arc(centerX, centerY, 65, 0.2 * Math.PI, 1.8 * Math.PI)
       ctx.stroke()
 
       // Inner matcha heart
       ctx.fillStyle = 'rgba(245, 255, 235, 0.92)'
       ctx.beginPath()
-      ctx.moveTo(centerX, centerY + 40)
-      ctx.bezierCurveTo(centerX - 60, centerY - 20, centerX - 80, centerY - 90, centerX, centerY - 50)
-      ctx.bezierCurveTo(centerX + 80, centerY - 90, centerX + 60, centerY - 20, centerX, centerY + 40)
+      ctx.moveTo(centerX, centerY + 20)
+      ctx.bezierCurveTo(centerX - 30, centerY - 10, centerX - 40, centerY - 45, centerX, centerY - 25)
+      ctx.bezierCurveTo(centerX + 40, centerY - 45, centerX + 30, centerY - 10, centerX, centerY + 20)
       ctx.fill()
     } else if (type === 'artisan-cold-brew') {
       // --- Cold Brew Dark Amber Texture ---
-      const grad = ctx.createRadialGradient(centerX, centerY, 20, centerX, centerY, radius)
+      const grad = ctx.createRadialGradient(centerX, centerY, 10, centerX, centerY, radius)
       grad.addColorStop(0, '#542d13')
       grad.addColorStop(0.5, '#2e1607')
       grad.addColorStop(0.85, '#190a03')
@@ -92,16 +92,16 @@ export function CoffeeCup3D({
 
       // Subtle condensation ripple rings
       ctx.strokeStyle = 'rgba(212, 160, 74, 0.25)'
-      ctx.lineWidth = 4
+      ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.arc(centerX, centerY, 100, 0, Math.PI * 2)
+      ctx.arc(centerX, centerY, 50, 0, Math.PI * 2)
       ctx.stroke()
       ctx.beginPath()
-      ctx.arc(centerX, centerY, 170, 0, Math.PI * 2)
+      ctx.arc(centerX, centerY, 85, 0, Math.PI * 2)
       ctx.stroke()
     } else {
       // --- Signature Latte Art (Rosetta & Crema) ---
-      const grad = ctx.createRadialGradient(centerX, centerY, 40, centerX, centerY, radius)
+      const grad = ctx.createRadialGradient(centerX, centerY, 20, centerX, centerY, radius)
       grad.addColorStop(0, '#e5be8a')
       grad.addColorStop(0.35, '#c28542')
       grad.addColorStop(0.7, '#784318')
@@ -113,10 +113,10 @@ export function CoffeeCup3D({
 
       // Golden crema speckles
       ctx.fillStyle = 'rgba(245, 222, 185, 0.2)'
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 20; i++) {
         const angle = Math.random() * Math.PI * 2
-        const dist = 60 + Math.random() * 150
-        const sz = 3 + Math.random() * 8
+        const dist = 30 + Math.random() * 75
+        const sz = 2 + Math.random() * 4
         ctx.beginPath()
         ctx.arc(centerX + Math.cos(angle) * dist, centerY + Math.sin(angle) * dist, sz, 0, Math.PI * 2)
         ctx.fill()
@@ -125,17 +125,17 @@ export function CoffeeCup3D({
       // Artisan Creamy Heart
       ctx.fillStyle = 'rgba(255, 248, 235, 0.95)'
       ctx.beginPath()
-      ctx.moveTo(centerX, centerY + 65)
-      ctx.bezierCurveTo(centerX - 85, centerY, centerX - 100, centerY - 95, centerX, centerY - 45)
-      ctx.bezierCurveTo(centerX + 100, centerY - 95, centerX + 85, centerY, centerX, centerY + 65)
+      ctx.moveTo(centerX, centerY + 32)
+      ctx.bezierCurveTo(centerX - 42, centerY, centerX - 50, centerY - 48, centerX, centerY - 22)
+      ctx.bezierCurveTo(centerX + 50, centerY - 48, centerX + 42, centerY, centerX, centerY + 32)
       ctx.fill()
 
       // Small secondary inner heart
       ctx.fillStyle = '#e8cfa8'
       ctx.beginPath()
-      ctx.moveTo(centerX, centerY + 30)
-      ctx.bezierCurveTo(centerX - 40, centerY - 10, centerX - 50, centerY - 60, centerX, centerY - 30)
-      ctx.bezierCurveTo(centerX + 50, centerY - 60, centerX + 40, centerY - 10, centerX, centerY + 30)
+      ctx.moveTo(centerX, centerY + 15)
+      ctx.bezierCurveTo(centerX - 20, centerY - 5, centerX - 25, centerY - 30, centerX, centerY - 15)
+      ctx.bezierCurveTo(centerX + 25, centerY - 30, centerX + 20, centerY - 5, centerX, centerY + 15)
       ctx.fill()
     }
 
@@ -183,11 +183,11 @@ export function CoffeeCup3D({
       powerPreference: 'high-performance',
     })
     renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.15
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.shadowMap.type = THREE.PCFShadowMap
 
     container.innerHTML = ''
     container.appendChild(renderer.domElement)
@@ -200,8 +200,8 @@ export function CoffeeCup3D({
     const keyLight = new THREE.DirectionalLight(0xffeedd, 2.2)
     keyLight.position.set(4, 7, 5)
     keyLight.castShadow = true
-    keyLight.shadow.mapSize.width = 1024
-    keyLight.shadow.mapSize.height = 1024
+    keyLight.shadow.mapSize.width = 512
+    keyLight.shadow.mapSize.height = 512
     keyLight.shadow.camera.near = 0.5
     keyLight.shadow.camera.far = 15
     keyLight.shadow.bias = -0.001
@@ -223,7 +223,7 @@ export function CoffeeCup3D({
 
     // --- A. Ceramic Mug Body ---
     // Smooth tapered cylinder with thick ceramic walls
-    const cupGeometry = new THREE.CylinderGeometry(1.22, 0.95, 1.65, 48, 1, false)
+    const cupGeometry = new THREE.CylinderGeometry(1.22, 0.95, 1.65, 32, 1, false)
     const cupMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x221710, // Dark espresso ceramic
       roughness: 0.28,
@@ -238,7 +238,7 @@ export function CoffeeCup3D({
     cupGroup.add(cupMesh)
 
     // Inner Cup Ceramic (Light cream inside rim)
-    const innerGeometry = new THREE.CylinderGeometry(1.15, 0.88, 1.55, 48, 1, true)
+    const innerGeometry = new THREE.CylinderGeometry(1.15, 0.88, 1.55, 32, 1, true)
     const innerMaterial = new THREE.MeshStandardMaterial({
       color: 0xf5ead6,
       roughness: 0.35,
@@ -249,7 +249,7 @@ export function CoffeeCup3D({
     cupGroup.add(innerMesh)
 
     // Gold / Terracotta Top Rim Trim
-    const rimGeometry = new THREE.TorusGeometry(1.18, 0.05, 16, 48)
+    const rimGeometry = new THREE.TorusGeometry(1.18, 0.05, 12, 32)
     const rimMaterial = new THREE.MeshStandardMaterial({
       color: 0xd4a04a,
       roughness: 0.2,
@@ -261,7 +261,7 @@ export function CoffeeCup3D({
     cupGroup.add(rimMesh)
 
     // --- B. Ceramic Mug Handle ---
-    const handleGeometry = new THREE.TorusGeometry(0.55, 0.11, 24, 36, Math.PI * 1.1)
+    const handleGeometry = new THREE.TorusGeometry(0.55, 0.11, 16, 24, Math.PI * 1.1)
     const handleMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x221710,
       roughness: 0.28,
@@ -276,7 +276,7 @@ export function CoffeeCup3D({
     cupGroup.add(handleMesh)
 
     // --- C. Ceramic Saucer (Piring Tatakan) ---
-    const saucerGeometry = new THREE.CylinderGeometry(1.95, 1.45, 0.16, 48)
+    const saucerGeometry = new THREE.CylinderGeometry(1.95, 1.45, 0.16, 32)
     const saucerMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x1a120c,
       roughness: 0.3,
@@ -291,14 +291,14 @@ export function CoffeeCup3D({
     cupGroup.add(saucerMesh)
 
     // Saucer Gold Accent Ring
-    const saucerRingGeo = new THREE.TorusGeometry(1.85, 0.025, 16, 48)
+    const saucerRingGeo = new THREE.TorusGeometry(1.85, 0.025, 12, 32)
     const saucerRing = new THREE.Mesh(saucerRingGeo, rimMaterial)
     saucerRing.rotation.x = Math.PI / 2
     saucerRing.position.y = 0.16
     cupGroup.add(saucerRing)
 
     // --- D. Liquid Surface Disk with Latte Art ---
-    const liquidGeometry = new THREE.CircleGeometry(1.13, 48)
+    const liquidGeometry = new THREE.CircleGeometry(1.13, 32)
     const initialTexture = createLiquidTexture(drinkId)
     const liquidMaterial = new THREE.MeshStandardMaterial({
       map: initialTexture,
@@ -316,11 +316,11 @@ export function CoffeeCup3D({
     const iceGeo = new THREE.BoxGeometry(0.38, 0.38, 0.38)
     const iceMat = new THREE.MeshPhysicalMaterial({
       color: 0xffffff,
-      transmission: 0.95,
-      opacity: 0.85,
-      transparent: true,
       roughness: 0.08,
-      ior: 1.31,
+      metalness: 0.02,
+      transparent: true,
+      opacity: 0.72,
+      clearcoat: 1.0,
     })
     for (let i = 0; i < 3; i++) {
       const iceCube = new THREE.Mesh(iceGeo, iceMat)
@@ -478,14 +478,23 @@ export function CoffeeCup3D({
     window.addEventListener('pointerup', handlePointerUp)
     window.addEventListener('pointercancel', handlePointerUp)
 
-    // --- 5. Animation Render Loop ---
-    let clock = new THREE.Clock()
+    // Pre-compile shaders so first render frame doesn't stall
+    renderer.compile(scene, camera)
 
-    const animate = () => {
+    // --- 5. Animation Render Loop ---
+    const timer = new THREE.Timer()
+
+    const animate = (timestamp?: number) => {
       const state = stateRef.current
       if (!state) return
 
-      const delta = clock.getDelta()
+      if (document.hidden) {
+        state.animId = requestAnimationFrame(animate)
+        return
+      }
+
+      timer.update(timestamp)
+      const elapsed = timer.getElapsed()
 
       // A. Rotation & Inertia
       if (state.autoRotate && !state.isDragging) {
@@ -508,7 +517,7 @@ export function CoffeeCup3D({
       state.cupGroup.rotation.y = state.currentRotation.y
 
       // Gentle floating bob
-      state.cupGroup.position.y = Math.sin(clock.getElapsedTime() * 1.5) * 0.035
+      state.cupGroup.position.y = Math.sin(elapsed * 1.5) * 0.035
 
       // B. Animate Steam Particles
       if (state.steamParticles && state.steamPositions && state.steamVelocities) {
@@ -518,8 +527,8 @@ export function CoffeeCup3D({
 
         for (let i = 0; i < count; i++) {
           positions[i * 3 + 1] += velocities[i * 3 + 1]
-          positions[i * 3] += Math.sin(clock.getElapsedTime() * 2 + i) * 0.001
-          positions[i * 3 + 2] += Math.cos(clock.getElapsedTime() * 2 + i) * 0.001
+          positions[i * 3] += Math.sin(elapsed * 2 + i) * 0.001
+          positions[i * 3 + 2] += Math.cos(elapsed * 2 + i) * 0.001
 
           // Reset particle to cup surface when it floats up too high
           if (positions[i * 3 + 1] > 3.4) {
@@ -565,6 +574,7 @@ export function CoffeeCup3D({
       if (stateRef.current?.idleTimer) {
         window.clearTimeout(stateRef.current.idleTimer)
       }
+      timer.dispose()
       renderer.dispose()
       if (container.contains(domElement)) {
         container.removeChild(domElement)

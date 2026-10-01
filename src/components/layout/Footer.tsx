@@ -32,9 +32,13 @@ const footerColumns = [
         external: true,
         isWa: true,
       },
-      { href: '/#contact', label: '📍 Jl. Lorong Rasa No. 1' },
-      { href: '/#contact', label: '⏰ Buka: 07.00 – 22.00 WIB' },
-      { href: 'mailto:hello@lorongrasa.id', label: '✉️ hello@lorongrasa.id', external: true },
+      {
+        href: 'https://maps.google.com/?q=Dadapan+Wajak+Malang',
+        label: '📍 Dadapan, Wajak, RT.15 RW.05',
+        external: true,
+      },
+      { href: '/#contact', label: '⏰ Buka: 10.00 – 22.00 WIB' },
+      { href: 'mailto:lorongrasa30@gmail.com', label: '✉️ lorongrasa30@gmail.com', external: true },
     ],
   },
 ] satisfies {
@@ -107,18 +111,18 @@ export function Footer() {
               </a>
 
               <a
-                href="mailto:hello@lorongrasa.id"
-                title="Kirim Email ke hello@lorongrasa.id"
+                href="mailto:lorongrasa30@gmail.com"
+                title="Kirim Email ke lorongrasa30@gmail.com"
                 className="social-btn social-btn-default"
               >
                 <Mail size={16} />
               </a>
 
               <a
-                href="https://instagram.com/lorongrasa"
+                href="https://www.instagram.com/rasalorong?stkn=c3N4Y2wwNzV1cHI3"
                 target="_blank"
                 rel="noopener noreferrer"
-                title="Instagram @lorongrasa"
+                title="Instagram @rasalorong"
                 className="social-btn social-btn-default"
               >
                 <Share2 size={16} />
@@ -186,7 +190,7 @@ export function Footer() {
             color: 'var(--color-text-muted)',
             fontFamily: 'var(--font-inter)',
           }}>
-            © {new Date().getFullYear()} Lorong Rasa Coffee Shop. All rights reserved.
+            © {new Date().getFullYear()} Lorong Rasa by Ratna. All rights reserved.
           </p>
           <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
             <Link href="/kebijakan-privasi" className="footer-bottom-link">

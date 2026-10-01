@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/providers/ThemeProvider'
 import { CartProvider } from '@/components/providers/CartProvider'
 import { ToastProvider } from '@/components/providers/ToastProvider'
 import { CartDrawer } from '@/components/cart/CartDrawer'
+import { DevGreeting } from '@/components/layout/DevGreeting'
 
 const playfair = Playfair_Display({
   subsets: ['latin'],
@@ -43,6 +44,7 @@ export default function RootLayout({
         <ThemeProvider>
           <CartProvider>
             <ToastProvider>
+              <DevGreeting />
               {children}
               <CartDrawer />
             </ToastProvider>

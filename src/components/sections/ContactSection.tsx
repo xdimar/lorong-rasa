@@ -147,55 +147,85 @@ export function ContactSection() {
 
               {/* Other Info Items */}
               {[
-                { icon: MapPin, label: 'Alamat Gerai', value: 'Jl. Lorong Rasa No. 1, Kota Kopi, Indonesia' },
-                { icon: Phone, label: 'Telepon / WhatsApp', value: `${ownerPhone} (${ownerName})` },
-                { icon: Mail, label: 'Email Resmi', value: 'hello@lorongrasa.id' },
-                { icon: Clock, label: 'Jam Buka Gerai', value: 'Senin – Minggu: 07.00 – 22.00 WIB' },
-              ].map(({ icon: Icon, label, value }) => (
-                <div
-                  key={label}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '1rem',
-                    background: 'var(--color-bg-card)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '1.15rem',
-                    transition: 'all 0.3s ease',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = 'var(--color-primary)'
-                    e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = 'var(--color-border)'
-                    e.currentTarget.style.boxShadow = 'none'
-                  }}
-                >
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '10px',
-                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    boxShadow: '0 4px 12px var(--color-primary-glow)',
-                  }}>
-                    <Icon size={18} color="white" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '2px' }}>
-                      {label}
+                {
+                  icon: MapPin,
+                  label: 'Alamat Gerai',
+                  value: 'Dadapan, Wajak, RT.15 RW.05',
+                  href: 'https://maps.google.com/?q=Dadapan+Wajak+Malang',
+                },
+                {
+                  icon: Phone,
+                  label: 'Telepon / WhatsApp',
+                  value: `${ownerPhone} (${ownerName})`,
+                  href: waDirectUrl,
+                },
+                {
+                  icon: Mail,
+                  label: 'Email Resmi',
+                  value: 'lorongrasa30@gmail.com',
+                  href: 'mailto:lorongrasa30@gmail.com',
+                },
+                {
+                  icon: Clock,
+                  label: 'Jam Buka Gerai',
+                  value: 'Senin – Minggu: 10.00 – 22.00 WIB',
+                },
+              ].map(({ icon: Icon, label, value, href }) => {
+                const ItemTag = href ? 'a' : 'div'
+                return (
+                  <ItemTag
+                    key={label}
+                    href={href}
+                    target={href?.startsWith('http') ? '_blank' : undefined}
+                    rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '1rem',
+                      background: 'var(--color-bg-card)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '1.15rem',
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      transition: 'all 0.25s ease',
+                      cursor: href ? 'pointer' : 'default',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = 'var(--color-primary)'
+                      e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
+                      if (href) e.currentTarget.style.transform = 'translateY(-2px)'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = 'var(--color-border)'
+                      e.currentTarget.style.boxShadow = 'none'
+                      if (href) e.currentTarget.style.transform = 'translateY(0)'
+                    }}
+                  >
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 4px 12px var(--color-primary-glow)',
+                    }}>
+                      <Icon size={18} color="white" />
                     </div>
-                    <div style={{ fontSize: '0.9rem', color: 'var(--color-text)', fontFamily: 'var(--font-inter)', fontWeight: 500 }}>
-                      {value}
+                    <div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '2px' }}>
+                        {label}
+                      </div>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--color-text)', fontFamily: 'var(--font-inter)', fontWeight: 500 }}>
+                        {value}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </ItemTag>
+                )
+              })}
 
               {/* Social & Channel Links */}
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
@@ -226,7 +256,7 @@ export function ContactSection() {
                 </a>
 
                 <a
-                  href="https://instagram.com"
+                  href="https://www.instagram.com/rasalorong?stkn=c3N4Y2wwNzV1cHI3"
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -247,7 +277,7 @@ export function ContactSection() {
                   }}
                 >
                   <Share2 size={16} />
-                  @lorongrasa
+                  @rasalorong
                 </a>
               </div>
             </div>

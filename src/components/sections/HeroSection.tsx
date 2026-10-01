@@ -8,7 +8,36 @@ import {
   ShoppingBag,
   Tag,
 } from 'lucide-react'
-import { CoffeeCup3D } from '@/components/ui/CoffeeCup3D'
+import dynamic from 'next/dynamic'
+
+const CoffeeCup3D = dynamic(
+  () => import('@/components/ui/CoffeeCup3D').then((mod) => mod.CoffeeCup3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        style={{
+          width: '100%',
+          height: '420px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            border: '3px solid rgba(212, 160, 74, 0.2)',
+            borderTopColor: '#d4a04a',
+            animation: 'spin 1s linear infinite',
+          }}
+        />
+      </div>
+    ),
+  }
+)
 
 export function HeroSection() {
   const marqueeItems = [

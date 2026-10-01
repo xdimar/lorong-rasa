@@ -106,7 +106,7 @@ export function ReceiptModal({
     text += `Status      : LUNAS\n`
     text += `${divider}\n`
     text += `Terima kasih atas kunjungannya!\n`
-    text += `Instagram: @lorongrasa\n`
+    text += `Instagram: @rasalorong\n`
     return text
   }
 
@@ -463,7 +463,7 @@ export function ReceiptModal({
               <div style={{ textAlign: 'center', fontSize: '0.7rem', color: '#666', marginTop: '6px' }}>
                 <div>Terima Kasih atas Kunjungannya!</div>
                 <div>Nikmati setiap tegukan & rasa.</div>
-                <div style={{ marginTop: '4px', fontWeight: 600 }}>Instagram: @lorongrasa</div>
+                <div style={{ marginTop: '4px', fontWeight: 600 }}>Instagram: @rasalorong</div>
               </div>
             </div>
           </div>
