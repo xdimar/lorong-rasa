@@ -189,6 +189,13 @@ create policy "Profiles update policy"
   using (auth.uid() = id or public.is_admin())
   with check (auth.uid() = id or public.is_admin());
 
+drop policy if exists "Admin can delete profiles" on public.profiles;
+drop policy if exists "Profiles delete policy" on public.profiles;
+create policy "Profiles delete policy"
+  on public.profiles for delete
+  using (public.is_admin());
+
+
 -- Proteksi kolom role: Hanya admin yang boleh mengubah role akun
 create or replace function public.protect_profile_role()
 returns trigger as $$
