@@ -2,18 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { RotateCcw, Sparkles } from 'lucide-react'
 
 interface CoffeeCup3DProps {
-  drinkId: string
-  drinkName: string
+  drinkId?: string
+  drinkName?: string
   accentColor?: string
 }
 
-export function CoffeeCup3D({ drinkId, drinkName, accentColor = '#d4a04a' }: CoffeeCup3DProps) {
+export function CoffeeCup3D({
+  drinkId = 'signature-iced-latte',
+  drinkName = 'Signature Iced Latte',
+  accentColor = '#d4a04a',
+}: CoffeeCup3DProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const [isInteracting, setIsInteracting] = useState(false)
-  const [hasInteracted, setHasInteracted] = useState(false)
 
   // Internal mutable refs for 3D state
   const stateRef = useRef<{
@@ -414,7 +416,6 @@ export function CoffeeCup3D({ drinkId, drinkName, accentColor = '#d4a04a' }: Cof
       stateRef.current.previousPointerPosition = { x: e.clientX, y: e.clientY }
       stateRef.current.rotationVelocity = { x: 0, y: 0 }
       setIsInteracting(true)
-      setHasInteracted(true)
 
       try {
         domElement.setPointerCapture(e.pointerId)
@@ -617,10 +618,19 @@ export function CoffeeCup3D({ drinkId, drinkName, accentColor = '#d4a04a' }: Cof
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: '440px', margin: '0 auto' }}>
-      {/* Interactive 3D Canvas Viewport */}
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        maxWidth: '500px',
+        margin: '0 auto',
+      }}
+    >
+      {/* Pure 3D Canvas Viewport - Double Click to Reset Angle */}
       <div
         ref={mountRef}
+        onDoubleClick={handleResetAngle}
+        title="Klik dan seret untuk putar 360° • Double-klik untuk reset"
         style={{
           width: '100%',
           aspectRatio: '1 / 1',
@@ -630,79 +640,6 @@ export function CoffeeCup3D({ drinkId, drinkName, accentColor = '#d4a04a' }: Cof
           WebkitUserSelect: 'none',
         }}
       />
-
-      {/* Floating 360° Interaction Hint & Reset Controls */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '8px',
-          left: 0,
-          right: 0,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: '8px',
-          pointerEvents: 'none',
-          zIndex: 25,
-        }}
-      >
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            background: 'rgba(20, 14, 9, 0.82)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            border: '1px solid rgba(212, 160, 74, 0.35)',
-            borderRadius: '50px',
-            padding: '5px 14px',
-            color: 'var(--color-gold)',
-            fontSize: '0.74rem',
-            fontWeight: 600,
-            fontFamily: 'var(--font-inter)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-            pointerEvents: 'auto',
-            animation: !hasInteracted ? 'pulse 2s infinite' : 'none',
-            transition: 'all 0.3s ease',
-          }}
-        >
-          <Sparkles size={12} style={{ color: accentColor }} />
-          <span>{isInteracting ? 'Memutar 360°...' : '↻ Drag Bebas untuk Putar 360°'}</span>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleResetAngle}
-          title="Kembalikan ke sudut awal"
-          style={{
-            pointerEvents: 'auto',
-            background: 'rgba(20, 14, 9, 0.82)',
-            border: '1px solid rgba(212, 160, 74, 0.35)',
-            color: 'var(--color-text-muted)',
-            borderRadius: '50%',
-            width: '28px',
-            height: '28px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-            transition: 'color 0.2s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-gold)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-text-muted)')}
-        >
-          <RotateCcw size={12} />
-        </button>
-      </div>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 0.95; }
-          50% { transform: scale(1.03); opacity: 1; border-color: rgba(212, 160, 74, 0.7); }
-        }
-      `}</style>
     </div>
   )
 }
