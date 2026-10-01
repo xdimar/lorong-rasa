@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
-import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, AlertCircle } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, AlertCircle, Crop, Maximize2, Minimize2, Sliders, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { ImageAdjustModal } from '@/components/admin/ImageAdjustModal'
 
 interface MenuItem {
   id: string
@@ -50,95 +51,75 @@ export default function MenuAdminPage() {
   const [userRole, setUserRole] = useState<'admin' | 'cashier'>('admin')
   const [dragOver, setDragOver] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false)
+  const [imageToAdjust, setImageToAdjust] = useState<string | null>(null)
+  const [previewFitMode, setPreviewFitMode] = useState<'cover' | 'contain'>('cover')
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Stable client — prevents re-instantiation on every render
   const supabase = useMemo(() => createClient(), [])
 
   // Returns the public URL of the uploaded image, or null on failure.
+  // Supports File, Blob, and base64 DataURL (processed by dynamic cropper).
   // Also handles deletion of the previous image from Storage.
-  const uploadImage = useCallback(async (file: File, prevUrl?: string | null): Promise<string | null> => {
-    // --- Validate ---
-    const MAX_SIZE_MB = 5
-    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setUploadMessage('Format tidak didukung. Gunakan JPG, PNG, WebP, atau GIF.')
-      return null
-    }
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      setUploadMessage(`Ukuran file melebihi ${MAX_SIZE_MB}MB. Kompres foto terlebih dahulu.`)
-      return null
-    }
-
+  const uploadImage = useCallback(async (input: File | Blob | string, prevUrl?: string | null): Promise<string | null> => {
     setUploading(true)
     setUploadMessage('')
-    setUploadProgress(10)
+    setUploadProgress(15)
 
     try {
-      const ext = file.name.split('.').pop() ?? 'jpg'
-      // Use UUID for collision-free filenames
-      const fileName = `menu/${crypto.randomUUID()}.${ext}`
+      let blob: Blob
+      let fileName: string
 
-      setUploadProgress(30)
+      if (typeof input === 'string') {
+        if (input.startsWith('data:')) {
+          // Convert base64 dataUrl from canvas to Blob
+          const parts = input.split(';base64,')
+          const contentType = parts[0].split(':')[1] || 'image/jpeg'
+          const raw = atob(parts[1])
+          const rawLength = raw.length
+          const uInt8Array = new Uint8Array(rawLength)
+          for (let i = 0; i < rawLength; ++i) {
+            uInt8Array[i] = raw.charCodeAt(i)
+          }
+          blob = new Blob([uInt8Array], { type: contentType })
+          fileName = `menu/${crypto.randomUUID()}.jpg`
+        } else {
+          // Normal HTTP/HTTPS URL
+          setUploading(false)
+          return input
+        }
+      } else {
+        blob = input
+        const ext = (input instanceof File ? input.name.split('.').pop() : 'jpg') ?? 'jpg'
+        fileName = `menu/${crypto.randomUUID()}.${ext}`
+      }
+
+      setUploadProgress(40)
 
       const { data, error } = await supabase.storage
         .from('menu-images')
-        .upload(fileName, file, { cacheControl: '3600', upsert: false })
+        .upload(fileName, blob, { cacheControl: '3600', upsert: false })
 
       setUploadProgress(80)
 
       if (error || !data) {
-        // Fallback: compress and store as optimized base64 data URL when bucket isn't configured yet
-        console.warn('Storage upload error, falling back to compressed base64:', error?.message)
+        console.warn('Supabase storage upload fallback to optimized data URL:', error?.message)
+        if (typeof input === 'string') {
+          setUploading(false)
+          setUploadProgress(null)
+          setUploadMessage('✓ Foto disesuaikan & disimpan.')
+          return input
+        }
         return new Promise((resolve) => {
           const reader = new FileReader()
-          reader.onload = (readerEvent) => {
-            const img = new Image()
-            img.onload = () => {
-              const canvas = document.createElement('canvas')
-              const MAX_WIDTH = 800
-              const MAX_HEIGHT = 800
-              let width = img.width
-              let height = img.height
-
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height = Math.round((height * MAX_WIDTH) / width)
-                  width = MAX_WIDTH
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width = Math.round((width * MAX_HEIGHT) / height)
-                  height = MAX_HEIGHT
-                }
-              }
-
-              canvas.width = width
-              canvas.height = height
-              const ctx = canvas.getContext('2d')
-              ctx?.drawImage(img, 0, 0, width, height)
-              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75)
-
-              setUploading(false)
-              setUploadProgress(null)
-              setUploadMessage('Foto dioptimalkan & disimpan sebagai Base64.')
-              resolve(compressedBase64)
-            }
-            img.onerror = () => {
-              setUploading(false)
-              setUploadProgress(null)
-              setUploadMessage('Gagal membaca file foto.')
-              resolve(null)
-            }
-            img.src = readerEvent.target?.result as string
-          }
-          reader.onerror = () => {
+          reader.onload = () => {
             setUploading(false)
             setUploadProgress(null)
-            setUploadMessage('Gagal membaca file foto.')
-            resolve(null)
+            setUploadMessage('✓ Foto disesuaikan & disimpan.')
+            resolve(reader.result as string)
           }
-          reader.readAsDataURL(file)
+          reader.readAsDataURL(blob)
         })
       }
 
@@ -150,21 +131,21 @@ export default function MenuAdminPage() {
             await supabase.storage.from('menu-images').remove([pathMatch[1]])
           }
         } catch {
-          // Non-fatal — old file cleanup failure should not block the new upload
+          // Non-fatal
         }
       }
 
       const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(data.path)
       setUploadProgress(100)
-      setUploadMessage('✓ Foto berhasil diupload!')
+      setUploadMessage('✓ Foto berhasil diunggah & disesuaikan!')
       return urlData.publicUrl
     } catch (err) {
-      console.error(err)
-      setUploadMessage('Terjadi kesalahan saat upload.')
+      console.error('Error uploading image:', err)
+      setUploadMessage('Gagal mengunggah foto.')
       return null
     } finally {
       setUploading(false)
-      setTimeout(() => setUploadProgress(null), 800)
+      setUploadProgress(null)
     }
   }, [supabase])
 
@@ -513,98 +494,255 @@ export default function MenuAdminPage() {
 
                 {imageMode === 'upload' ? (
                   <>
-                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (!file) return
-                      const url = await uploadImage(file, form.image_url)
-                      if (url) setForm(prev => ({ ...prev, image_url: url }))
-                      // Reset input so same file can be re-selected
-                      e.target.value = ''
-                    }} />
-                    <div
-                      onClick={() => !uploading && fileRef.current?.click()}
-                      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-                      onDragLeave={() => setDragOver(false)}
-                      onDrop={async (e) => {
-                        e.preventDefault()
-                        setDragOver(false)
-                        const file = e.dataTransfer.files?.[0]
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
                         if (!file) return
-                        const url = await uploadImage(file, form.image_url)
-                        if (url) setForm(prev => ({ ...prev, image_url: url }))
+                        const reader = new FileReader()
+                        reader.onload = (re) => {
+                          const dataUrl = re.target?.result as string
+                          if (dataUrl) {
+                            setImageToAdjust(dataUrl)
+                            setAdjustModalOpen(true)
+                          }
+                        }
+                        reader.readAsDataURL(file)
+                        e.target.value = ''
                       }}
-                      style={{
-                        border: `2px dashed ${dragOver ? 'var(--color-primary)' : form.image_url ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                    />
+
+                    {form.image_url ? (
+                      /* Enhanced Preview with Dynamic Fit & Adjust Controls */
+                      <div style={{
+                        position: 'relative',
                         borderRadius: 'var(--radius-md)',
-                        cursor: uploading ? 'not-allowed' : 'pointer',
                         overflow: 'hidden',
-                        transition: 'border-color 0.2s, background 0.2s',
-                        minHeight: '130px',
+                        height: '190px',
+                        background: '#171412',
+                        border: '1px solid var(--color-border)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        position: 'relative',
-                        background: dragOver ? 'var(--color-primary-glow)' : 'var(--color-bg-secondary)',
-                      }}
-                    >
-                      {uploading ? (
-                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', fontSize: '0.875rem', padding: '1.5rem', width: '100%' }}>
-                          <Upload size={24} style={{ margin: '0 auto 10px', display: 'block', animation: 'float 1s ease-in-out infinite' }} />
-                          <div style={{ marginBottom: '10px' }}>Mengupload...</div>
-                          {uploadProgress !== null && (
-                            <div style={{ width: '80%', margin: '0 auto', height: '6px', background: 'var(--color-border)', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div style={{
-                                height: '100%',
-                                width: `${uploadProgress}%`,
-                                background: 'linear-gradient(90deg, var(--color-primary), var(--color-primary-light))',
-                                borderRadius: '3px',
-                                transition: 'width 0.3s ease',
-                              }} />
-                            </div>
-                          )}
+                      }}>
+                        <img
+                          src={form.image_url}
+                          alt="preview"
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: previewFitMode,
+                            transition: 'all 0.2s',
+                          }}
+                        />
+
+                        {/* Top-Left: Fit Mode Switcher Pill */}
+                        <div style={{
+                          position: 'absolute',
+                          top: '8px',
+                          left: '8px',
+                          display: 'flex',
+                          background: 'rgba(0,0,0,0.7)',
+                          backdropFilter: 'blur(4px)',
+                          borderRadius: '20px',
+                          padding: '2px',
+                          gap: '2px',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewFitMode('cover')}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '16px',
+                              border: 'none',
+                              background: previewFitMode === 'cover' ? 'var(--color-primary)' : 'transparent',
+                              color: 'white',
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                            title="Tampilkan foto mengisi seluruh bingkai"
+                          >
+                            Isi Penuh (Cover)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewFitMode('contain')}
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '16px',
+                              border: 'none',
+                              background: previewFitMode === 'contain' ? 'var(--color-primary)' : 'transparent',
+                              color: 'white',
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                            title="Tampilkan seluruh foto tanpa terpotong"
+                          >
+                            Muat Penuh (Contain)
+                          </button>
                         </div>
-                      ) : form.image_url ? (
-                        <>
-                          <img src={form.image_url} alt="preview" style={{ width: '100%', height: '170px', objectFit: 'cover' }} />
-                          <div style={{ position: 'absolute', bottom: '8px', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '6px' }}>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}
-                              style={{ background: 'rgba(0,0,0,0.6)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                              title="Ganti foto"
-                            >
-                              <Upload size={12} /> Ganti
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                // Delete from Storage if it's a storage URL
-                                if (form.image_url && form.image_url.includes('menu-images')) {
-                                  const pathMatch = form.image_url.match(/menu-images\/(.+)$/)
-                                  if (pathMatch?.[1]) {
-                                    await supabase.storage.from('menu-images').remove([pathMatch[1]])
-                                  }
+
+                        {/* Bottom Action Bar */}
+                        <div style={{
+                          position: 'absolute',
+                          bottom: '8px',
+                          left: 0,
+                          right: 0,
+                          display: 'flex',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          padding: '0 8px',
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (form.image_url) {
+                                setImageToAdjust(form.image_url)
+                                setAdjustModalOpen(true)
+                              }
+                            }}
+                            style={{
+                              background: 'var(--color-primary)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '5px 11px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                            }}
+                            title="Buka alat penyesuaian ukuran, zoom, dan potong foto"
+                          >
+                            <Crop size={13} /> Sesuaikan Ukuran
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => fileRef.current?.click()}
+                            style={{
+                              background: 'rgba(0,0,0,0.7)',
+                              color: 'white',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '6px',
+                              padding: '5px 10px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Ganti foto dengan file baru"
+                          >
+                            <Upload size={12} /> Ganti
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (form.image_url && form.image_url.includes('menu-images')) {
+                                const pathMatch = form.image_url.match(/menu-images\/(.+)$/)
+                                if (pathMatch?.[1]) {
+                                  await supabase.storage.from('menu-images').remove([pathMatch[1]])
                                 }
-                                setForm(prev => ({ ...prev, image_url: null }))
-                                setUploadMessage('')
-                              }}
-                              style={{ background: 'rgba(232,90,74,0.85)', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                              title="Hapus foto"
-                            >
-                              <X size={12} /> Hapus
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', padding: '1.5rem' }}>
-                          <ImageIcon size={32} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.4 }} />
-                          <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{dragOver ? 'Lepaskan untuk upload' : 'Klik atau drag & drop foto'}</span>
-                          <br />
-                          <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>JPG, PNG, WebP (max 5MB)</span>
+                              }
+                              setForm(prev => ({ ...prev, image_url: null }))
+                              setUploadMessage('')
+                            }}
+                            style={{
+                              background: 'rgba(232,90,74,0.85)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '5px 10px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Hapus foto ini"
+                          >
+                            <X size={12} /> Hapus
+                          </button>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      /* Drag & Drop Upload Trigger */
+                      <div
+                        onClick={() => !uploading && fileRef.current?.click()}
+                        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          setDragOver(false)
+                          const file = e.dataTransfer.files?.[0]
+                          if (!file) return
+                          const reader = new FileReader()
+                          reader.onload = (re) => {
+                            const dataUrl = re.target?.result as string
+                            if (dataUrl) {
+                              setImageToAdjust(dataUrl)
+                              setAdjustModalOpen(true)
+                            }
+                          }
+                          reader.readAsDataURL(file)
+                        }}
+                        style={{
+                          border: `2px dashed ${dragOver ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                          borderRadius: 'var(--radius-md)',
+                          cursor: uploading ? 'not-allowed' : 'pointer',
+                          overflow: 'hidden',
+                          transition: 'border-color 0.2s, background 0.2s',
+                          minHeight: '135px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          position: 'relative',
+                          background: dragOver ? 'var(--color-primary-glow)' : 'var(--color-bg-secondary)',
+                        }}
+                      >
+                        {uploading ? (
+                          <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', fontSize: '0.875rem', padding: '1.5rem', width: '100%' }}>
+                            <Upload size={24} style={{ margin: '0 auto 10px', display: 'block', animation: 'float 1s ease-in-out infinite' }} />
+                            <div style={{ marginBottom: '10px' }}>Memproses foto...</div>
+                            {uploadProgress !== null && (
+                              <div style={{ width: '80%', margin: '0 auto', height: '6px', background: 'var(--color-border)', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{
+                                  height: '100%',
+                                  width: `${uploadProgress}%`,
+                                  background: 'linear-gradient(90deg, var(--color-primary), var(--color-primary-light))',
+                                  borderRadius: '3px',
+                                  transition: 'width 0.3s ease',
+                                }} />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', padding: '1.5rem' }}>
+                            <ImageIcon size={32} style={{ margin: '0 auto 8px', display: 'block', opacity: 0.4 }} />
+                            <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                              {dragOver ? 'Lepaskan untuk upload & sesuaikan' : 'Pilih atau drag & drop foto menu'}
+                            </span>
+                            <br />
+                            <span style={{ fontSize: '0.75rem', opacity: 0.7, color: 'var(--color-primary)' }}>
+                              ✨ Ukuran dapat disesuaikan & diatur dinamis
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div>
@@ -630,16 +768,64 @@ export default function MenuAdminPage() {
                       </button>
                     </div>
                     {form.image_url && (
-                      <div style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', height: '140px', border: '1px solid var(--color-border)' }}>
-                        <img src={form.image_url} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <button
-                          type="button"
-                          onClick={() => setForm({ ...form, image_url: null })}
-                          style={{ position: 'absolute', top: '8px', right: '8px', background: '#e85a4a', color: 'white', border: 'none', borderRadius: '6px', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          title="Hapus foto"
-                        >
-                          <X size={14} />
-                        </button>
+                      <div style={{
+                        position: 'relative',
+                        borderRadius: 'var(--radius-md)',
+                        overflow: 'hidden',
+                        height: '160px',
+                        border: '1px solid var(--color-border)',
+                        background: '#171412',
+                      }}>
+                        <img
+                          src={form.image_url}
+                          alt="preview"
+                          style={{ width: '100%', height: '100%', objectFit: previewFitMode }}
+                        />
+                        <div style={{ position: 'absolute', bottom: '8px', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (form.image_url) {
+                                setImageToAdjust(form.image_url)
+                                setAdjustModalOpen(true)
+                              }
+                            }}
+                            style={{
+                              background: 'var(--color-primary)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Crop size={12} /> Sesuaikan Ukuran
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, image_url: null })}
+                            style={{
+                              background: 'rgba(232,90,74,0.9)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '4px 10px',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <X size={12} /> Hapus
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -943,8 +1129,27 @@ export default function MenuAdminPage() {
             >
               {/* Image Preview */}
               {item.image_url ? (
-                <div style={{ width: '100%', height: '140px', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '1rem', background: 'var(--color-bg-secondary)' }}>
-                  <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{
+                  width: '100%',
+                  height: '150px',
+                  borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden',
+                  marginBottom: '1rem',
+                  background: '#171412',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <img
+                    src={item.image_url}
+                    alt={item.name}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      transition: 'transform 0.3s ease',
+                    }}
+                  />
                 </div>
               ) : (
                 <div style={{ width: '100%', height: '90px', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', border: '1px dashed var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--color-text-muted)', gap: '6px' }}>
@@ -1008,6 +1213,21 @@ export default function MenuAdminPage() {
           ))}
         </div>
       )}
+      {/* Dynamic Image Adjuster / Cropper Modal */}
+      <ImageAdjustModal
+        isOpen={adjustModalOpen}
+        imageSrc={imageToAdjust}
+        onClose={() => {
+          setAdjustModalOpen(false)
+          setImageToAdjust(null)
+        }}
+        onConfirm={async (processedDataUrl) => {
+          const finalUrl = await uploadImage(processedDataUrl, form.image_url)
+          if (finalUrl) {
+            setForm(prev => ({ ...prev, image_url: finalUrl }))
+          }
+        }}
+      />
     </div>
   )
 }

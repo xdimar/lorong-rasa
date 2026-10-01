@@ -369,16 +369,29 @@ function MenuCard({ item, delay }: { item: MenuItem; delay: number }) {
         {/* Image */}
         <div style={{
           height: '200px',
-          background: item.image_url
-            ? `url(${item.image_url}) center/cover no-repeat`
-            : `linear-gradient(135deg, ${color}22, ${color}44)`,
+          backgroundColor: '#171412',
           position: 'relative',
           overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}>
-          {!item.image_url && (
+          {item.image_url ? (
+            <img
+              src={item.image_url}
+              alt={item.name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transition: 'transform 0.4s ease',
+              }}
+            />
+          ) : (
             <div style={{
               position: 'absolute',
               inset: 0,
+              background: `linear-gradient(135deg, ${color}22, ${color}44)`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
