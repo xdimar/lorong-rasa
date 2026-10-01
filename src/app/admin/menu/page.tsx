@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
-import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, Tag, AlertCircle, Check } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Coffee, Upload, ImageIcon, FolderPlus, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface MenuItem {
@@ -88,15 +88,49 @@ export default function MenuAdminPage() {
       setUploadProgress(80)
 
       if (error || !data) {
-        // Fallback: store as base64 data URL when bucket isn't configured yet
-        console.warn('Storage upload error, falling back to base64:', error?.message)
+        // Fallback: compress and store as optimized base64 data URL when bucket isn't configured yet
+        console.warn('Storage upload error, falling back to compressed base64:', error?.message)
         return new Promise((resolve) => {
           const reader = new FileReader()
-          reader.onloadend = () => {
-            setUploading(false)
-            setUploadProgress(null)
-            setUploadMessage('Foto disimpan sebagai Base64 (bucket belum dikonfigurasi).')
-            resolve(reader.result as string)
+          reader.onload = (readerEvent) => {
+            const img = new Image()
+            img.onload = () => {
+              const canvas = document.createElement('canvas')
+              const MAX_WIDTH = 800
+              const MAX_HEIGHT = 800
+              let width = img.width
+              let height = img.height
+
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height = Math.round((height * MAX_WIDTH) / width)
+                  width = MAX_WIDTH
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width = Math.round((width * MAX_HEIGHT) / height)
+                  height = MAX_HEIGHT
+                }
+              }
+
+              canvas.width = width
+              canvas.height = height
+              const ctx = canvas.getContext('2d')
+              ctx?.drawImage(img, 0, 0, width, height)
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75)
+
+              setUploading(false)
+              setUploadProgress(null)
+              setUploadMessage('Foto dioptimalkan & disimpan sebagai Base64.')
+              resolve(compressedBase64)
+            }
+            img.onerror = () => {
+              setUploading(false)
+              setUploadProgress(null)
+              setUploadMessage('Gagal membaca file foto.')
+              resolve(null)
+            }
+            img.src = readerEvent.target?.result as string
           }
           reader.onerror = () => {
             setUploading(false)
@@ -167,6 +201,11 @@ export default function MenuAdminPage() {
     const name = newCatName.trim()
     if (!name) return
 
+    if (name.toLowerCase() === 'semua') {
+      setCatError("Nama 'Semua' adalah filter bawaan sistem dan tidak dapat digunakan sebagai nama kategori.")
+      return
+    }
+
     if (categories.some(c => c.toLowerCase() === name.toLowerCase())) {
       setCatError('Kategori dengan nama ini sudah ada.')
       return
@@ -185,8 +224,9 @@ export default function MenuAdminPage() {
 
       setCategories(prev => [...prev, name])
       setNewCatName('')
-    } catch (err: any) {
-      setCatError(err.message || 'Gagal menambahkan kategori.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Gagal menambahkan kategori.'
+      setCatError(message)
     } finally {
       setCatLoading(false)
     }
@@ -217,8 +257,9 @@ export default function MenuAdminPage() {
         setForm(prev => ({ ...prev, category: categories.find(c => c !== catName) || 'Signature' }))
       }
       setDeleteCatConfirm(null)
-    } catch (err: any) {
-      setCatError(err.message || 'Gagal menghapus kategori.')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Gagal menghapus kategori.'
+      setCatError(message)
     } finally {
       setCatLoading(false)
     }

@@ -6,19 +6,12 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Camera,
   CameraOff,
-  User,
   Tag,
-  Clock,
   Check,
   RefreshCw,
-  ShoppingBag,
-  Sparkles,
-  ArrowRight,
   ShieldCheck,
-  Info,
 } from 'lucide-react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
@@ -54,6 +47,12 @@ interface ClaimedVoucher {
   profiles?: ProfileData
 }
 
+interface QrScannerInstance {
+  isScanning?: boolean
+  stop: () => Promise<void>
+  clear: () => void
+}
+
 export default function ScanVoucherPage() {
   const [cameraActive, setCameraActive] = useState(false)
   const [manualInput, setManualInput] = useState('')
@@ -65,7 +64,7 @@ export default function ScanVoucherPage() {
   const [recentRedemptions, setRecentRedemptions] = useState<ClaimedVoucher[]>([])
   const [cashierUser, setCashierUser] = useState<SupabaseUser | null>(null)
 
-  const scannerRef = useRef<any>(null)
+  const scannerRef = useRef<QrScannerInstance | null>(null)
   const supabase = createClient()
 
   const stopCamera = async () => {

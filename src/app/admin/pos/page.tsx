@@ -16,13 +16,13 @@ import {
   UtensilsCrossed,
   Package,
   RotateCcw,
-  Sparkles,
-  AlertCircle,
-  CreditCard,
   LayoutGrid,
   List,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { posSound } from '@/lib/sound'
 import {
   MenuItem,
   defaultCategories,
@@ -76,11 +76,13 @@ export default function CashierPOSPage() {
 
   // Responsive Mobile/Tablet Tab View ('menu' | 'cart')
   const [mobileTab, setMobileTab] = useState<'menu' | 'cart'>('menu')
+  const [soundEnabled, setSoundEnabled] = useState(true)
 
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
-  // 1. Fetch Menu Items & Cashier Profile
+  // 1. Fetch Menu Items & Cashier Profile + Realtime Stock Subscription
   useEffect(() => {
+    setSoundEnabled(posSound.isEnabled())
     const initPOS = async () => {
       try {
         // Fetch cashier profile
@@ -118,7 +120,11 @@ export default function CashierPOSPage() {
           .order('name')
 
         if (catData && catData.length > 0) {
-          setCategories(['Semua', ...catData.map((c: { name: string }) => c.name)])
+          const uniqueCats = Array.from<string>(new Set(catData.map((c: { name: string }) => c.name).filter((c: string) => c !== 'Semua')))
+          setCategories(['Semua', ...uniqueCats])
+        } else if (menuData && menuData.length > 0) {
+          const distinct = Array.from<string>(new Set(menuData.map((m: { category?: string }) => m.category).filter((c: string | undefined): c is string => Boolean(c) && c !== 'Semua')))
+          setCategories(['Semua', ...distinct])
         }
       } catch (err) {
         console.error('POS init error:', err)
@@ -129,7 +135,51 @@ export default function CashierPOSPage() {
     }
 
     initPOS()
-  }, [])
+
+    // Real-time listener: sync stock changes (is_available, price, new items) immediately
+    const channel = supabase
+      .channel('pos-realtime-menu-stock')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'menu_items' },
+        (payload: { eventType: string; new: MenuItem; old: { id?: string } }) => {
+          if (payload.eventType === 'UPDATE' && payload.new) {
+            const updated = payload.new as MenuItem
+            setItems((prev) =>
+              prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
+            )
+            // Update item in cart if currently selected
+            setCart((prev) =>
+              prev.map((c) =>
+                c.menuItem.id === updated.id
+                  ? { ...c, menuItem: { ...c.menuItem, ...updated } }
+                  : c
+              )
+            )
+          } else if (payload.eventType === 'INSERT' && payload.new) {
+            const newItem = payload.new as MenuItem
+            setItems((prev) => {
+              if (prev.some((it) => it.id === newItem.id)) return prev
+              return [...prev, newItem]
+            })
+            if (newItem.category) {
+              setCategories((prev) =>
+                prev.includes(newItem.category) ? prev : [...prev, newItem.category]
+              )
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const deletedId = (payload.old as { id: string }).id
+            setItems((prev) => prev.filter((it) => it.id !== deletedId))
+            setCart((prev) => prev.filter((c) => c.menuItem.id !== deletedId))
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
   // 2. Calculations
   const subtotal = useMemo(() => {
@@ -145,16 +195,14 @@ export default function CashierPOSPage() {
   const changeAmount = paymentMethod === 'cash' ? Math.max(0, cashReceived - grandTotal) : 0
   const isCashSufficient = paymentMethod === 'cash' ? cashReceived >= grandTotal : true
 
-  // Auto update default cashReceived when grandTotal changes if it was uang pas
-  useEffect(() => {
-    if (paymentMethod === 'cash' && cashReceived < grandTotal) {
-      setCashReceived(grandTotal)
-    }
-  }, [grandTotal, paymentMethod])
 
   // 3. Cart Management
   const addToCart = (menuItem: MenuItem) => {
-    if (!menuItem.is_available) return
+    if (!menuItem.is_available) {
+      posSound.playWarning()
+      return
+    }
+    posSound.playAddToCart()
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.menuItem.id === menuItem.id)
       if (idx >= 0) {
@@ -167,6 +215,11 @@ export default function CashierPOSPage() {
   }
 
   const updateQuantity = (itemId: string, delta: number) => {
+    if (delta > 0) {
+      posSound.playAddToCart()
+    } else {
+      posSound.playRemove()
+    }
     setCart((prev) => {
       return prev
         .map((it) => {
@@ -187,12 +240,14 @@ export default function CashierPOSPage() {
   }
 
   const removeFromCart = (itemId: string) => {
+    posSound.playRemove()
     setCart((prev) => prev.filter((it) => it.menuItem.id !== itemId))
   }
 
   const clearCart = () => {
     if (cart.length === 0) return
     if (confirm('Bersihkan semua item dalam keranjang kasir?')) {
+      posSound.playRemove()
       setCart([])
       setAppliedVoucher(null)
       setVoucherCodeInput('')
@@ -213,16 +268,19 @@ export default function CashierPOSPage() {
         .single()
 
       if (error || !data) {
+        posSound.playWarning()
         setVoucherError('Kode voucher tidak ditemukan atau tidak aktif.')
         return
       }
 
       if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        posSound.playWarning()
         setVoucherError('Voucher sudah kedaluwarsa.')
         return
       }
 
       if (data.min_order && subtotal < data.min_order) {
+        posSound.playWarning()
         setVoucherError(`Minimal order Rp ${Number(data.min_order).toLocaleString('id-ID')} untuk voucher ini.`)
         return
       }
@@ -235,14 +293,17 @@ export default function CashierPOSPage() {
       }
       disc = Math.min(disc, subtotal)
 
+      posSound.playAddToCart()
       setAppliedVoucher({ code: data.code, discount: disc })
       setVoucherError('')
     } catch {
+      posSound.playWarning()
       setVoucherError('Gagal memvalidasi voucher.')
     }
   }
 
   const removeVoucher = () => {
+    posSound.playRemove()
     setAppliedVoucher(null)
     setVoucherCodeInput('')
     setVoucherError('')
@@ -251,11 +312,25 @@ export default function CashierPOSPage() {
   // 5. Submit Order & Payment
   const handleProcessOrder = async () => {
     if (cart.length === 0) {
+      posSound.playWarning()
       alert('Pilih minimal satu menu untuk memproses pesanan!')
       return
     }
 
+    // Check if any items in cart became unavailable in real-time
+    const unavailableInCart = cart.filter((c) => !c.menuItem.is_available)
+    if (unavailableInCart.length > 0) {
+      posSound.playWarning()
+      alert(
+        `Menu berikut saat ini sedang habis (stok tidak tersedia): ${unavailableInCart
+          .map((c) => c.menuItem.name)
+          .join(', ')}. Harap hapus atau sesuaikan pesanan terlebih dahulu.`
+      )
+      return
+    }
+
     if (paymentMethod === 'cash' && cashReceived < grandTotal) {
+      posSound.playWarning()
       alert('Uang tunai yang diterima masih kurang dari total tagihan!')
       return
     }
@@ -339,7 +414,8 @@ export default function CashierPOSPage() {
       setLastReceiptOrder(receiptOrderData)
       setLastReceiptItems(receiptItemsData)
 
-      // 4. Success Toast & Optional Auto-print
+      // 4. Success Toast, Audio Chime & Optional Auto-print
+      posSound.playSuccess()
       setSuccessToast(`Pesanan #${orderId.slice(0, 8).toUpperCase()} Berhasil Diproses!`)
       setTimeout(() => setSuccessToast(null), 4000)
 
@@ -412,14 +488,68 @@ export default function CashierPOSPage() {
             >
               Kasir: {cashierName}
             </span>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                background: 'rgba(74, 158, 106, 0.12)',
+                color: '#4a9e6a',
+                border: '1px solid rgba(74, 158, 106, 0.3)',
+                borderRadius: '50px',
+                padding: '2px 8px',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+              }}
+              title="Ketersediaan stok menu disinkronkan secara real-time langsung dari server"
+            >
+              <span
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#4a9e6a',
+                  boxShadow: '0 0 8px #4a9e6a',
+                }}
+              />
+              Live Sync Stok
+            </span>
           </div>
           <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', margin: '4px 0 0' }}>
             Input transaksi walk-in, atur pesanan meja, dan cetak struk thermal.
           </p>
         </div>
 
-        {/* Quick Order Type & Last Receipt Button */}
+        {/* Quick Order Type, Audio Toggle & Last Receipt Button */}
         <div className="pos-top-actions">
+          {/* Audio Feedback Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = posSound.toggle()
+              setSoundEnabled(next)
+            }}
+            title={soundEnabled ? 'Suara POS Aktif (Klik untuk Matikan)' : 'Suara POS Mati (Klik untuk Nyalakan)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '0.5rem 0.85rem',
+              borderRadius: 'var(--radius-md)',
+              background: soundEnabled ? 'rgba(74, 158, 106, 0.12)' : 'var(--color-bg-secondary)',
+              color: soundEnabled ? '#4a9e6a' : 'var(--color-text-muted)',
+              border: `1px solid ${soundEnabled ? 'rgba(74, 158, 106, 0.35)' : 'var(--color-border)'}`,
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.2s',
+            }}
+          >
+            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            <span className="hidden sm:inline">{soundEnabled ? 'Suara: On' : 'Suara: Off'}</span>
+          </button>
+
           {lastReceiptOrder && (
             <button
               type="button"
@@ -1156,8 +1286,15 @@ export default function CashierPOSPage() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ flex: 1, paddingRight: '8px' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-text)' }}>
-                        {item.menuItem.name}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-text)' }}>
+                          {item.menuItem.name}
+                        </span>
+                        {!item.menuItem.is_available && (
+                          <span style={{ fontSize: '0.65rem', background: 'rgba(232, 90, 74, 0.15)', color: '#e85a4a', border: '1px solid rgba(232, 90, 74, 0.35)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                            Stok Habis
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                         Rp {item.menuItem.price.toLocaleString('id-ID')}
@@ -1349,7 +1486,10 @@ export default function CashierPOSPage() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 type="button"
-                onClick={() => setPaymentMethod('cash')}
+                onClick={() => {
+                  setPaymentMethod('cash')
+                  if (cashReceived === 0) setCashReceived(grandTotal)
+                }}
                 style={{
                   flex: 1,
                   display: 'flex',

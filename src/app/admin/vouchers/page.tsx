@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, X, Check, Tag, Percent, Gift, QrCode, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Tag, Percent, Gift, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -62,7 +62,9 @@ export default function VouchersPage() {
     const payload = {
       ...form,
       code: form.code.toUpperCase(),
-      expires_at: new Date(form.expires_at).toISOString(),
+      expires_at: form.expires_at.includes('T')
+        ? new Date(form.expires_at).toISOString()
+        : new Date(`${form.expires_at}T23:59:59.999Z`).toISOString(),
     }
 
     let result

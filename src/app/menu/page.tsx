@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Search, Coffee, Filter, ShoppingCart } from 'lucide-react'
+import { Search, Coffee, ShoppingCart } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
@@ -43,10 +43,11 @@ export default function MenuPage() {
         // Fetch dynamic categories
         const { data: catData } = await supabase.from('menu_categories').select('name').order('name')
         if (catData && catData.length > 0) {
-          setCategories(['Semua', ...catData.map((c: { name: string }) => c.name)])
+          const uniqueCats = Array.from<string>(new Set(catData.map((c: { name: string }) => c.name).filter((c: string) => c !== 'Semua')))
+          setCategories(['Semua', ...uniqueCats])
         } else if (data && data.length > 0) {
-          const itemCats = Array.from(new Set(data.map((i: any) => i.category).filter(Boolean)))
-          setCategories(['Semua', ...itemCats as string[]])
+          const itemCats = Array.from<string>(new Set(data.map((i: MenuItem) => i.category).filter((c: string) => Boolean(c) && c !== 'Semua')))
+          setCategories(['Semua', ...itemCats])
         }
       } catch {
         setItems(defaultMenuItems)
