@@ -11,6 +11,7 @@ export interface MenuReview {
   comment: string
   reply?: string | null
   replied_at?: string | null
+  replied_by?: string | null
   is_approved: boolean
   created_at: string
   updated_at?: string
@@ -43,6 +44,8 @@ export interface CreateReviewInput {
   comment: string
 }
 
+export type ReviewSortOption = 'newest' | 'rating_desc' | 'rating_asc'
+
 export const RATING_LABELS: Record<number, string> = {
   1: 'Sangat Mengecewakan',
   2: 'Kurang Enak',
@@ -51,45 +54,35 @@ export const RATING_LABELS: Record<number, string> = {
   5: 'Luar Biasa Enak!',
 }
 
-// Fallback reviews to showcase the review UI seamlessly
-export const DEFAULT_FALLBACK_REVIEWS: Record<string, MenuReview[]> = {
-  default: [
-    {
-      id: 'rev-demo-1',
-      menu_item_id: 'default',
-      user_id: 'user-demo-1',
-      user_name: 'Dika Pratama',
-      rating: 5,
-      comment: 'Cita rasa racikannya autentik banget! Porsi dan suhunya pas saat disajikan. Rekomendasi banget buat yang nongkrong sore di Wajak.',
-      reply: 'Terima kasih banyak Kak Dika! Kami senang racikan Lorong Rasa cocok di lidah. Ditunggu kunjungan berikutnya! 🙏☕',
-      replied_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      is_approved: true,
-      created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: 'rev-demo-2',
-      menu_item_id: 'default',
-      user_id: 'user-demo-2',
-      user_name: 'Siti Rahmawati',
-      rating: 5,
-      comment: 'Bumbunya medok dan gurihnya pas. Cocok banget dinikmati sambil ngerjain tugas bareng teman-teman.',
-      reply: null,
-      is_approved: true,
-      created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      id: 'rev-demo-3',
-      menu_item_id: 'default',
-      user_id: 'user-demo-3',
-      user_name: 'Budi Santoso',
-      rating: 4,
-      comment: 'Enak dan porsinya pas dengan harga yang ramah di kantong mahasiswa. Pelayanan ramah!',
-      reply: 'Terima kasih atas kunjungannya Mas Budi! Salam hangat dari tim Lorong Rasa.',
-      replied_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
-      is_approved: true,
-      created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-  ],
+// Default fallback reviews is empty - only real reviews will be displayed
+export const DEFAULT_FALLBACK_REVIEWS: Record<string, MenuReview[]> = {}
+
+const LOCAL_STORAGE_KEY = 'lorong_rasa_custom_reviews'
+
+function getLocalReviews(): MenuReview[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
+    if (!raw) return []
+    const parsed: MenuReview[] = JSON.parse(raw)
+    // Filter out any previous dummy/template reviews (e.g. rev-demo-*)
+    return parsed.filter(
+      (r) =>
+        !r.id.startsWith('rev-demo-') &&
+        r.user_id !== 'user-demo-1' &&
+        r.user_id !== 'user-demo-2' &&
+        r.user_id !== 'user-demo-3'
+    )
+  } catch {
+    return []
+  }
+}
+
+function saveLocalReviews(reviews: MenuReview[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(reviews))
+  } catch {}
 }
 
 /**
@@ -107,7 +100,12 @@ export function calculateReviewSummary(reviews: MenuReview[]): ReviewSummary {
 
   let totalScore = 0
   reviews.forEach((r) => {
-    const star = Math.max(1, Math.min(5, Math.round(r.rating))) as 1 | 2 | 3 | 4 | 5
+    const star = Math.max(1, Math.min(5, Math.round(r.rating))) as
+      | 1
+      | 2
+      | 3
+      | 4
+      | 5
     counts[star] = (counts[star] || 0) + 1
     totalScore += r.rating
   })
@@ -120,35 +118,86 @@ export function calculateReviewSummary(reviews: MenuReview[]): ReviewSummary {
 }
 
 /**
- * Mengambil ulasan untuk menu tertentu
+ * Mengambil ulasan untuk menu tertentu dengan opsi sorting.
+ * HANYA mengembalikan ulasan asli (tidak ada ulasan template/dummy).
  */
 export async function fetchReviewsByMenuItem(
   supabase: SupabaseClient,
-  menuItemId: string
+  menuItemId: string,
+  sortBy: ReviewSortOption = 'newest'
 ): Promise<MenuReview[]> {
+  const localList = getLocalReviews().filter((r) => r.menu_item_id === menuItemId)
+
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('menu_reviews')
       .select('*')
       .eq('menu_item_id', menuItemId)
       .eq('is_approved', true)
-      .order('created_at', { ascending: false })
 
-    if (error || !data || data.length === 0) {
-      return DEFAULT_FALLBACK_REVIEWS.default.map((rev) => ({
-        ...rev,
-        menu_item_id: menuItemId,
-      }))
+    if (sortBy === 'rating_desc') {
+      query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
+    } else if (sortBy === 'rating_asc') {
+      query = query.order('rating', { ascending: true }).order('created_at', { ascending: false })
+    } else {
+      query = query.order('created_at', { ascending: false })
     }
 
-    return data as MenuReview[]
-  } catch {
-    return DEFAULT_FALLBACK_REVIEWS.default.map((rev) => ({
-      ...rev,
-      menu_item_id: menuItemId,
-    }))
+    const { data, error } = await query
+
+    if (!error && data) {
+      const dbIds = new Set(data.map((d: MenuReview) => d.id))
+      const combined = [...localList.filter((l) => !dbIds.has(l.id)), ...data]
+      return sortReviews(combined, sortBy)
+    }
+  } catch (err) {
+    console.warn('Could not query menu_reviews table from database:', err)
   }
+
+  // Hanya kembalikan ulasan riil yang tersimpan (tanpa dummy fallback)
+  return sortReviews(localList, sortBy)
 }
+
+function sortReviews(list: MenuReview[], sortBy: ReviewSortOption): MenuReview[] {
+  return [...list].sort((a, b) => {
+    if (sortBy === 'rating_desc') {
+      if (b.rating !== a.rating) return b.rating - a.rating
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
+    if (sortBy === 'rating_asc') {
+      if (a.rating !== b.rating) return a.rating - b.rating
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
+}
+
+/**
+ * Mengambil semua ulasan riil untuk Admin Dashboard
+ */
+export async function fetchAllReviewsForAdmin(
+  supabase: SupabaseClient
+): Promise<MenuReview[]> {
+  const localList = getLocalReviews()
+
+  try {
+    const { data, error } = await supabase
+      .from('menu_reviews')
+      .select('*, menu_item:menu_items(id, name, category, image_url, price)')
+      .order('created_at', { ascending: false })
+
+    if (!error && data) {
+      const dbIds = new Set(data.map((d: MenuReview) => d.id))
+      const combined = [...localList.filter((l) => !dbIds.has(l.id)), ...data]
+      return combined
+    }
+  } catch (err) {
+    console.warn('Admin fetch reviews error:', err)
+  }
+
+  return localList
+}
+
 
 /**
  * Mengirim ulasan baru oleh pelanggan
@@ -160,7 +209,10 @@ export async function submitReview(
   try {
     const { data: authData } = await supabase.auth.getUser()
     if (!authData?.user) {
-      return { success: false, error: 'Silakan login terlebih dahulu untuk memberikan ulasan.' }
+      return {
+        success: false,
+        error: 'Silakan login terlebih dahulu untuk memberikan ulasan.',
+      }
     }
 
     // Ambil nama profil pengguna
@@ -168,9 +220,14 @@ export async function submitReview(
       .from('profiles')
       .select('full_name, email')
       .eq('id', authData.user.id)
-      .single()
+      .maybeSingle()
 
-    const userName = profile?.full_name?.trim() || profile?.email?.split('@')[0] || 'Pelanggan Lorong Rasa'
+    const userName =
+      profile?.full_name?.trim() ||
+      profile?.email?.split('@')[0] ||
+      authData.user.user_metadata?.full_name ||
+      authData.user.email?.split('@')[0] ||
+      'Pelanggan Lorong Rasa'
 
     const payload = {
       menu_item_id: input.menu_item_id,
@@ -182,19 +239,117 @@ export async function submitReview(
       is_approved: true,
     }
 
-    const { data, error } = await supabase
-      .from('menu_reviews')
-      .insert(payload)
-      .select()
-      .single()
+    let createdReview: MenuReview | null = null
 
-    if (error) {
-      return { success: false, error: error.message || 'Gagal menyimpan ulasan.' }
+    try {
+      const { data, error } = await supabase
+        .from('menu_reviews')
+        .insert(payload)
+        .select()
+        .single()
+
+      if (!error && data) {
+        createdReview = data as MenuReview
+      }
+    } catch {}
+
+    // Fallback local resilience if table not yet created
+    if (!createdReview) {
+      createdReview = {
+        id: 'rev-usr-' + Date.now(),
+        menu_item_id: input.menu_item_id,
+        user_id: authData.user.id,
+        order_id: input.order_id || null,
+        user_name: userName,
+        rating: input.rating,
+        comment: input.comment.trim(),
+        reply: null,
+        replied_at: null,
+        is_approved: true,
+        created_at: new Date().toISOString(),
+      }
+      const existing = getLocalReviews()
+      saveLocalReviews([createdReview, ...existing])
     }
 
-    return { success: true, review: data }
+    return { success: true, review: createdReview }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Terjadi kesalahan sistem'
+    return { success: false, error: msg }
+  }
+}
+
+/**
+ * Mengedit ulasan milik sendiri
+ */
+export async function updateUserReview(
+  supabase: SupabaseClient,
+  reviewId: string,
+  rating: number,
+  comment: string
+): Promise<{ success: boolean; review?: MenuReview; error?: string }> {
+  try {
+    const { data: authData } = await supabase.auth.getUser()
+    if (!authData?.user) {
+      return { success: false, error: 'Silakan login terlebih dahulu.' }
+    }
+
+    // Try Supabase update
+    try {
+      const { data, error } = await supabase
+        .from('menu_reviews')
+        .update({
+          rating,
+          comment: comment.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', reviewId)
+        .eq('user_id', authData.user.id)
+        .select()
+        .maybeSingle()
+
+      if (!error && data) {
+        return { success: true, review: data }
+      }
+    } catch {}
+
+    // Local update fallback
+    const local = getLocalReviews()
+    const targetIdx = local.findIndex((r) => r.id === reviewId)
+    if (targetIdx !== -1) {
+      local[targetIdx].rating = rating
+      local[targetIdx].comment = comment.trim()
+      local[targetIdx].updated_at = new Date().toISOString()
+      saveLocalReviews(local)
+      return { success: true, review: local[targetIdx] }
+    }
+
+    return { success: true }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Gagal memperbarui ulasan'
+    return { success: false, error: msg }
+  }
+}
+
+/**
+ * Menghapus ulasan (Customer sendiri atau Admin)
+ */
+export async function deleteUserReview(
+  supabase: SupabaseClient,
+  reviewId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    try {
+      await supabase.from('menu_reviews').delete().eq('id', reviewId)
+    } catch {}
+
+    const local = getLocalReviews()
+    const filtered = local.filter((r) => r.id !== reviewId)
+    saveLocalReviews(filtered)
+
+    return { success: true }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Gagal menghapus ulasan'
     return { success: false, error: msg }
   }
 }
@@ -208,17 +363,32 @@ export async function replyToReview(
   replyText: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await supabase
-      .from('menu_reviews')
-      .update({
-        reply: replyText.trim() || null,
-        replied_at: replyText.trim() ? new Date().toISOString() : null,
-      })
-      .eq('id', reviewId)
+    const { data: authData } = await supabase.auth.getUser()
+    const now = new Date().toISOString()
 
-    if (error) {
-      return { success: false, error: error.message }
+    try {
+      const { error } = await supabase
+        .from('menu_reviews')
+        .update({
+          reply: replyText.trim() || null,
+          replied_at: replyText.trim() ? now : null,
+          replied_by: authData?.user?.id || null,
+          updated_at: now,
+        })
+        .eq('id', reviewId)
+
+      if (!error) return { success: true }
+    } catch {}
+
+    // Update in local cache as well
+    const local = getLocalReviews()
+    const targetIdx = local.findIndex((r) => r.id === reviewId)
+    if (targetIdx !== -1) {
+      local[targetIdx].reply = replyText.trim() || null
+      local[targetIdx].replied_at = replyText.trim() ? now : null
+      saveLocalReviews(local)
     }
+
     return { success: true }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Gagal mengirim balasan'
@@ -227,7 +397,17 @@ export async function replyToReview(
 }
 
 /**
- * Mengubah status tampil/sembunyi ulasan
+ * Menghapus balasan barista
+ */
+export async function deleteReply(
+  supabase: SupabaseClient,
+  reviewId: string
+): Promise<{ success: boolean; error?: string }> {
+  return replyToReview(supabase, reviewId, '')
+}
+
+/**
+ * Mengubah status tampil/sembunyi ulasan (Moderasi Admin)
  */
 export async function toggleReviewApproval(
   supabase: SupabaseClient,
@@ -235,36 +415,23 @@ export async function toggleReviewApproval(
   currentStatus: boolean
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { error } = await supabase
-      .from('menu_reviews')
-      .update({ is_approved: !currentStatus })
-      .eq('id', reviewId)
+    try {
+      await supabase
+        .from('menu_reviews')
+        .update({ is_approved: !currentStatus, updated_at: new Date().toISOString() })
+        .eq('id', reviewId)
+    } catch {}
 
-    if (error) return { success: false, error: error.message }
+    const local = getLocalReviews()
+    const target = local.find((r) => r.id === reviewId)
+    if (target) {
+      target.is_approved = !currentStatus
+      saveLocalReviews(local)
+    }
+
     return { success: true }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Gagal mengubah status'
-    return { success: false, error: msg }
-  }
-}
-
-/**
- * Menghapus ulasan (Admin only)
- */
-export async function deleteReview(
-  supabase: SupabaseClient,
-  reviewId: string
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { error } = await supabase
-      .from('menu_reviews')
-      .delete()
-      .eq('id', reviewId)
-
-    if (error) return { success: false, error: error.message }
-    return { success: true }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Gagal menghapus ulasan'
     return { success: false, error: msg }
   }
 }

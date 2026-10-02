@@ -17,6 +17,7 @@ import {
   QrCode,
   ShieldCheck,
   Store,
+  MessageSquare,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
@@ -34,6 +35,7 @@ const allNavItems: NavItemConfig[] = [
   { href: '/admin/orders', icon: ShoppingBag, label: 'Pesanan', roles: ['admin', 'cashier'] },
   { href: '/admin/scan-voucher', icon: QrCode, label: 'Scan Voucher', roles: ['admin', 'cashier'] },
   { href: '/admin/menu', icon: Coffee, label: 'Menu & Stok', roles: ['admin', 'cashier'] },
+  { href: '/admin/reviews', icon: MessageSquare, label: 'Ulasan Menu', roles: ['admin', 'cashier'] },
   { href: '/admin/vouchers', icon: Tag, label: 'Voucher', roles: ['admin'] },
   { href: '/admin/users', icon: Users, label: 'Pengguna', roles: ['admin'] },
 ]
@@ -84,15 +86,11 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   const renderSidebar = () => (
     <aside style={{
-      width: '240px',
-      background: 'var(--color-bg-card)',
-      borderRight: '1px solid var(--color-border)',
-      height: '100vh',
+      width: '100%',
+      height: '100%',
       display: 'flex',
       flexDirection: 'column',
-      position: 'sticky',
-      top: 0,
-      flexShrink: 0,
+      overflow: 'hidden',
     }}>
       {/* Brand */}
       <div style={{
@@ -101,6 +99,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
+        flexShrink: 0,
       }}>
         <div style={{
           width: '36px',
@@ -147,7 +146,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: '1.25rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <nav style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '1.25rem 0.75rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px'
+      }}>
         {navItems.map(({ href, icon: Icon, label }) => {
           const isActive = pathname === href
           return (
@@ -172,6 +178,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         display: 'flex',
         flexDirection: 'column',
         gap: '0.5rem',
+        flexShrink: 0,
       }}>
         <Link href="/" className="admin-sidebar-back-link">
           ← Kembali ke Website
@@ -186,7 +193,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
-      {/* Desktop Sidebar */}
+      {/* Desktop Fixed Sidebar */}
       <div className="admin-sidebar-desktop">
         {renderSidebar()}
       </div>
@@ -207,14 +214,21 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             inset: 0,
             background: 'rgba(0,0,0,0.5)',
           }} />
-          <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{
+            position: 'relative',
+            zIndex: 1,
+            width: '240px',
+            height: '100vh',
+            background: 'var(--color-bg-card)',
+            borderRight: '1px solid var(--color-border)',
+          }}>
             {renderSidebar()}
           </div>
         </div>
       )}
 
-      {/* Main */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      {/* Main Content Area */}
+      <div className="admin-main-wrapper">
         {/* Top bar */}
         <header style={{
           background: 'var(--color-bg-card)',

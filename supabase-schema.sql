@@ -1,446 +1,402 @@
--- =============================================
--- LORONG RASA — Supabase Database Schema
--- Jalankan script ini di Supabase SQL Editor
--- =============================================
+-- ============================================================
+-- LORONG RASA — MASTER DATABASE SCHEMA (ALL-IN-ONE)
+-- Jalankan skrip ini di Supabase SQL Editor untuk inisialisasi
+-- atau pembaruan menyeluruh database Lorong Rasa Cafe Wajak.
+-- ============================================================
 
--- 1. Tabel vouchers
-create table if not exists public.vouchers (
-  id uuid default gen_random_uuid() primary key,
-  code text not null unique,
-  description text not null,
-  discount_type text not null check (discount_type in ('percentage', 'fixed')),
-  discount_value numeric not null check (discount_value > 0),
-  min_order numeric not null default 0,
-  max_uses integer not null default 100,
-  current_uses integer not null default 0,
-  expires_at timestamptz not null,
-  is_active boolean not null default true,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+-- ------------------------------------------------------------
+-- 1. EXTENSIONS
+-- ------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ------------------------------------------------------------
+-- 2. TABEL PROFILES & ROLE HELPER
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  email TEXT NOT NULL,
+  full_name TEXT,
+  phone TEXT,
+  role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'cashier', 'admin')),
+  avatar_url TEXT,
+  loyalty_points INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Tabel menu_items
-create table if not exists public.menu_items (
-  id uuid default gen_random_uuid() primary key,
-  name text not null,
-  description text,
-  price numeric not null check (price >= 0),
-  category text not null,
-  image_url text,
-  is_available boolean not null default true,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
+-- Pastikan kolom baru ada jika tabel pernah dibuat
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS loyalty_points INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 
--- Pastikan kolom image_url dan cost_price ada jika tabel sudah dibuat sebelumnya
-alter table public.menu_items add column if not exists image_url text;
-alter table public.menu_items add column if not exists cost_price numeric not null default 0 check (cost_price >= 0);
-
--- 2.1 Tabel menu_categories (Manajemen Kategori Dinamis)
-create table if not exists public.menu_categories (
-  id uuid default gen_random_uuid() primary key,
-  name text not null unique,
-  created_at timestamptz default now()
-);
-
-alter table public.menu_categories enable row level security;
-
-drop policy if exists "Categories readable by everyone" on public.menu_categories;
-create policy "Categories readable by everyone"
-  on public.menu_categories for select using (true);
-
-drop policy if exists "Categories insertable by admin" on public.menu_categories;
-create policy "Categories insertable by admin"
-  on public.menu_categories for insert
-  with check (public.is_admin());
-
-drop policy if exists "Categories deletable by admin" on public.menu_categories;
-create policy "Categories deletable by admin"
-  on public.menu_categories for delete
-  using (public.is_admin());
-
--- Seed default menu categories
-insert into public.menu_categories (name)
-values
-  ('Makanan Berat'),
-  ('Snack'),
-  ('Milky Series'),
-  ('Renceng Series'),
-  ('Lokal Series'),
-  ('Tea Series'),
-  ('Coffee Series'),
-  ('Mocktail Series')
-on conflict (name) do nothing;
-
--- 3. Tabel profiles (extend auth.users)
-create table if not exists public.profiles (
-  id uuid references auth.users on delete cascade primary key,
-  email text,
-  full_name text,
-  role text not null default 'user' check (role in ('user', 'cashier', 'admin')),
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
--- Pastikan check constraint mendukung role cashier
-alter table public.profiles drop constraint if exists profiles_role_check;
-alter table public.profiles add constraint profiles_role_check check (role in ('user', 'cashier', 'admin'));
-alter table public.profiles add column if not exists loyalty_points integer not null default 0 check (loyalty_points >= 0);
-
--- 4. Fungsi otomatis buat profile saat user mendaftar
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, email, full_name, role)
-  values (
-    new.id,
-    new.email,
-    coalesce(new.raw_user_meta_data->>'full_name', ''),
-    'user'
+-- Helper functions untuk cek role di RLS
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
   );
-  return new;
-end;
-$$ language plpgsql security definer;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. Trigger untuk handle_new_user
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-
--- =============================================
--- Row Level Security (RLS) & Helper Functions
--- =============================================
-
--- Fungsi helper SECURITY DEFINER: Admin
-create or replace function public.is_admin()
-returns boolean as $$
-begin
-  return exists (
-    select 1 from public.profiles
-    where id = auth.uid()
-    and role = 'admin'
+CREATE OR REPLACE FUNCTION public.is_staff()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role IN ('admin', 'cashier')
   );
-end;
-$$ language plpgsql security definer set search_path = public;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Fungsi helper SECURITY DEFINER: Staff (Kasir atau Admin)
-create or replace function public.is_staff()
-returns boolean as $$
-begin
-  return exists (
-    select 1 from public.profiles
-    where id = auth.uid()
-    and role in ('admin', 'cashier')
-  );
-end;
-$$ language plpgsql security definer set search_path = public;
-
--- Vouchers: read publik, write hanya admin
-alter table public.vouchers enable row level security;
-
-drop policy if exists "Vouchers readable by everyone" on public.vouchers;
-create policy "Vouchers readable by everyone"
-  on public.vouchers for select using (true);
-
-drop policy if exists "Vouchers writable by admin only" on public.vouchers;
-create policy "Vouchers writable by admin only"
-  on public.vouchers for all
-  using (public.is_admin())
-  with check (public.is_admin());
-
--- Menu Items: read publik, kasir & admin bisa update ketersediaan, hanya admin bisa insert/delete
-alter table public.menu_items enable row level security;
-
-drop policy if exists "Menu items readable by everyone" on public.menu_items;
-create policy "Menu items readable by everyone"
-  on public.menu_items for select using (true);
-
-drop policy if exists "Menu items insertable by admin only" on public.menu_items;
-create policy "Menu items insertable by admin only"
-  on public.menu_items for insert
-  with check (public.is_admin());
-
-drop policy if exists "Menu items writable by admin only" on public.menu_items;
-drop policy if exists "Menu items updatable by staff" on public.menu_items;
-create policy "Menu items updatable by staff"
-  on public.menu_items for update
-  using (public.is_staff())
-  with check (public.is_staff());
-
-drop policy if exists "Menu items deletable by admin only" on public.menu_items;
-create policy "Menu items deletable by admin only"
-  on public.menu_items for delete
-  using (public.is_admin());
-
--- Profiles: user bisa baca & update profil sendiri, staff/admin bisa baca
-alter table public.profiles enable row level security;
-
-drop policy if exists "Users can read own profile" on public.profiles;
-drop policy if exists "Admin can read all profiles" on public.profiles;
-drop policy if exists "Profiles read policy" on public.profiles;
-create policy "Profiles read policy"
-  on public.profiles for select
-  using (auth.uid() = id or public.is_staff());
-
-drop policy if exists "Users can update own profile" on public.profiles;
-drop policy if exists "Admin can update profiles" on public.profiles;
-drop policy if exists "Profiles update policy" on public.profiles;
-create policy "Profiles update policy"
-  on public.profiles for update
-  using (auth.uid() = id or public.is_admin())
-  with check (auth.uid() = id or public.is_admin());
-
-drop policy if exists "Admin can delete profiles" on public.profiles;
-drop policy if exists "Profiles delete policy" on public.profiles;
-create policy "Profiles delete policy"
-  on public.profiles for delete
-  using (public.is_admin());
-
-
--- Proteksi kolom role: Hanya admin yang boleh mengubah role akun
-create or replace function public.protect_profile_role()
-returns trigger as $$
-begin
-  if new.role is distinct from old.role and not public.is_admin() then
-    raise exception 'Hanya administrator yang diizinkan mengubah role pengguna.';
-  end if;
-  return new;
-end;
-$$ language plpgsql security definer set search_path = public;
-
-drop trigger if exists tr_protect_profile_role on public.profiles;
-create trigger tr_protect_profile_role
-  before update on public.profiles
-  for each row execute procedure public.protect_profile_role();
-
--- =============================================
--- 6. Tabel user_vouchers (1 User 1 Voucher & Offline Redemption)
--- =============================================
-create table if not exists public.user_vouchers (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
-  voucher_id uuid references public.vouchers on delete cascade not null,
-  voucher_code text not null,
-  status text not null default 'claimed' check (status in ('claimed', 'used')),
-  claimed_at timestamptz default now(),
-  used_at timestamptz,
-  used_via text check (used_via in ('online_checkout', 'offline_cashier')),
-  order_id uuid references public.orders on delete set null,
-  redeemed_by_cashier_id uuid references auth.users on delete set null,
-  unique(user_id, voucher_id)
-);
-
-alter table public.user_vouchers enable row level security;
-
-drop policy if exists "User vouchers select policy" on public.user_vouchers;
-create policy "User vouchers select policy"
-  on public.user_vouchers for select
-  using (auth.uid() = user_id or public.is_staff());
-
-drop policy if exists "User vouchers insert policy" on public.user_vouchers;
-create policy "User vouchers insert policy"
-  on public.user_vouchers for insert
-  with check (auth.uid() = user_id or public.is_staff());
-
-drop policy if exists "User vouchers update policy" on public.user_vouchers;
-create policy "User vouchers update policy"
-  on public.user_vouchers for update
-  using (
-    public.is_staff()
-    or (auth.uid() = user_id and status = 'claimed')
+-- Trigger auto-create profile saat user sign up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, role)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    'customer'
   )
-  with check (
-    public.is_staff()
-    or (auth.uid() = user_id and status = 'used')
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Profiles readable by authenticated users" ON public.profiles;
+CREATE POLICY "Profiles readable by authenticated users"
+  ON public.profiles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile"
+  ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admin can manage all profiles" ON public.profiles;
+CREATE POLICY "Admin can manage all profiles"
+  ON public.profiles FOR ALL USING (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 3. TABEL MENU CATEGORIES & MENU ITEMS
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.menu_categories (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.menu_categories ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Categories readable by everyone" ON public.menu_categories;
+CREATE POLICY "Categories readable by everyone"
+  ON public.menu_categories FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Categories manageable by admin" ON public.menu_categories;
+CREATE POLICY "Categories manageable by admin"
+  ON public.menu_categories FOR ALL USING (public.is_staff());
+
+CREATE TABLE IF NOT EXISTS public.menu_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  price NUMERIC NOT NULL CHECK (price >= 0),
+  cost_price NUMERIC NOT NULL DEFAULT 0 CHECK (cost_price >= 0),
+  category TEXT NOT NULL,
+  image_url TEXT,
+  is_available BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Menu items readable by everyone" ON public.menu_items;
+CREATE POLICY "Menu items readable by everyone"
+  ON public.menu_items FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Menu items manageable by staff" ON public.menu_items;
+CREATE POLICY "Menu items manageable by staff"
+  ON public.menu_items FOR ALL USING (public.is_staff());
+
+-- ------------------------------------------------------------
+-- 4. TABEL VOUCHERS (PROMO CAFE & DISKON PRODUK)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.vouchers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed', 'product')),
+  discount_value NUMERIC NOT NULL CHECK (discount_value > 0),
+  min_order NUMERIC NOT NULL DEFAULT 0,
+  max_uses INTEGER NOT NULL DEFAULT 100,
+  current_uses INTEGER NOT NULL DEFAULT 0,
+  product_name TEXT DEFAULT NULL,
+  product_menu_item_id UUID DEFAULT NULL REFERENCES public.menu_items(id) ON DELETE SET NULL,
+  share_token TEXT UNIQUE DEFAULT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Pastikan kolom baru ada jika tabel pernah dibuat
+ALTER TABLE public.vouchers ADD COLUMN IF NOT EXISTS product_name TEXT DEFAULT NULL;
+ALTER TABLE public.vouchers ADD COLUMN IF NOT EXISTS product_menu_item_id UUID DEFAULT NULL;
+ALTER TABLE public.vouchers ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE DEFAULT NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.check_constraints
+    WHERE constraint_name = 'vouchers_discount_type_check'
+  ) THEN
+    ALTER TABLE public.vouchers DROP CONSTRAINT vouchers_discount_type_check;
+  END IF;
+END $$;
+
+ALTER TABLE public.vouchers
+  ADD CONSTRAINT vouchers_discount_type_check
+  CHECK (discount_type IN ('percentage', 'fixed', 'product'));
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_share_token ON public.vouchers(share_token);
+
+ALTER TABLE public.vouchers ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Vouchers readable by everyone" ON public.vouchers;
+CREATE POLICY "Vouchers readable by everyone"
+  ON public.vouchers FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Vouchers manageable by admin" ON public.vouchers;
+CREATE POLICY "Vouchers manageable by admin"
+  ON public.vouchers FOR ALL USING (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 5. TABEL USER VOUCHERS (DOMPET VOUCHER KLAIM MEMBER)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.user_vouchers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  voucher_id UUID REFERENCES public.vouchers ON DELETE CASCADE NOT NULL,
+  voucher_code TEXT NOT NULL,
+  claimed_at TIMESTAMPTZ DEFAULT NOW(),
+  used_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'claimed' CHECK (status IN ('claimed', 'used', 'expired')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, voucher_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_vouchers_user_id ON public.user_vouchers(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_vouchers_status ON public.user_vouchers(status);
+
+ALTER TABLE public.user_vouchers ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own claimed vouchers" ON public.user_vouchers;
+CREATE POLICY "Users can view own claimed vouchers"
+  ON public.user_vouchers FOR SELECT
+  USING (auth.uid() = user_id OR public.is_staff());
+
+DROP POLICY IF EXISTS "Users can insert own voucher claim" ON public.user_vouchers;
+CREATE POLICY "Users can insert own voucher claim"
+  ON public.user_vouchers FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Staff can update user voucher status" ON public.user_vouchers;
+CREATE POLICY "Staff can update user voucher status"
+  ON public.user_vouchers FOR UPDATE
+  USING (public.is_staff() OR auth.uid() = user_id);
+
+-- ------------------------------------------------------------
+-- 6. TABEL ORDERS & ORDER ITEMS
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.orders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE SET NULL,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_email TEXT,
+  order_type TEXT NOT NULL DEFAULT 'dine_in' CHECK (order_type IN ('dine_in', 'takeaway')),
+  table_number TEXT,
+  payment_method TEXT NOT NULL DEFAULT 'qris' CHECK (payment_method IN ('qris', 'cash')),
+  payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'paid')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled')),
+  total_amount NUMERIC NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+  discount_amount NUMERIC NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+  voucher_code TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Orders readable by owner or staff" ON public.orders;
+CREATE POLICY "Orders readable by owner or staff"
+  ON public.orders FOR SELECT
+  USING (auth.uid() = user_id OR public.is_staff());
+
+DROP POLICY IF EXISTS "Anyone can insert order" ON public.orders;
+CREATE POLICY "Anyone can insert order"
+  ON public.orders FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Staff can manage orders" ON public.orders;
+CREATE POLICY "Staff can manage orders"
+  ON public.orders FOR ALL USING (public.is_staff());
+
+CREATE TABLE IF NOT EXISTS public.order_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  order_id UUID REFERENCES public.orders ON DELETE CASCADE NOT NULL,
+  menu_item_id UUID REFERENCES public.menu_items ON DELETE SET NULL,
+  menu_item_name TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  price NUMERIC NOT NULL CHECK (price >= 0),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Order items readable by owner or staff" ON public.order_items;
+CREATE POLICY "Order items readable by owner or staff"
+  ON public.order_items FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.orders
+      WHERE orders.id = order_items.order_id
+        AND (orders.user_id = auth.uid() OR public.is_staff())
+    )
   );
 
-drop policy if exists "User vouchers delete policy" on public.user_vouchers;
-create policy "User vouchers delete policy"
-  on public.user_vouchers for delete
-  using (public.is_admin());
+DROP POLICY IF EXISTS "Anyone can insert order items" ON public.order_items;
+CREATE POLICY "Anyone can insert order items"
+  ON public.order_items FOR INSERT WITH CHECK (true);
 
--- =============================================
--- Sample Data
--- =============================================
-
-insert into public.menu_items (name, description, price, category, image_url, is_available) values
-  -- Makanan Berat
-  ('Seblak Prasmanan', 'Seblak kuah pedas gurih dengan aneka pilihan topping prasmanan segar.', 12000, 'Makanan Berat', 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop&q=80', true),
-  ('Mie Nyemek / Goreng', 'Olahan mie bumbu racikan gurih mantap dengan sayur dan telur.', 8000, 'Makanan Berat', 'https://images.unsplash.com/photo-1612927601601-6638404737ce?w=600&auto=format&fit=crop&q=80', true),
-  ('Ayam Geprek', 'Ayam krispi renyah digeprek dengan sambal bawang pedas nampol.', 12000, 'Makanan Berat', 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Snack
-  ('Pisang Pasir (M)', 'Pisang manis balut tepung panir krispi renyah porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80', true),
-  ('Pisang Pasir (L)', 'Pisang pasir krispi porsi Large melimpah pas untuk dinikmati bersama.', 10000, 'Snack', 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80', true),
-  ('Piscok (M)', 'Pisang coklat lumer dibalut kulit lumpia renyah porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1607920591413-4ec007e70023?w=600&auto=format&fit=crop&q=80', true),
-  ('Piscok (L)', 'Pisang coklat lumer ekstra coklat meleleh porsi Large.', 10000, 'Snack', 'https://images.unsplash.com/photo-1607920591413-4ec007e70023?w=600&auto=format&fit=crop&q=80', true),
-  ('Dimsum', 'Dimsum kukus lembut isi olahan daging ayam dan udang gurih lezat.', 10000, 'Snack', 'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?w=600&auto=format&fit=crop&q=80', true),
-  ('Tahu Kres', 'Tahu goreng berbalut tepung krispi gurih renyah.', 5000, 'Snack', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80', true),
-  ('Cireng Isi (M)', 'Cireng kenyal isi ayam pedas gurih porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=600&auto=format&fit=crop&q=80', true),
-  ('Cireng Isi (L)', 'Cireng kenyal isi ayam pedas gurih porsi Large puas.', 10000, 'Snack', 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=600&auto=format&fit=crop&q=80', true),
-  ('Cilok Aci', 'Cilok kenyal gurih disajikan dengan bumbu kacang atau saus pedas.', 5000, 'Snack', 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop&q=80', true),
-  ('Tahu Kocek (M)', 'Tahu kocek khas dengan sambal cabe uleg rawit segar porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80', true),
-  ('Tahu Kocek (L)', 'Tahu kocek khas sambal cabe rawit pedas mantap porsi Large.', 10000, 'Snack', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80', true),
-  ('Kocek Mix (M)', 'Kombinasi tahu dan cilok bumbu kocek pedas porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop&q=80', true),
-  ('Kocek Mix (L)', 'Kombinasi tahu dan cilok bumbu kocek pedas porsi Large.', 10000, 'Snack', 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop&q=80', true),
-  ('Kentang Goreng', 'Kentang goreng stik renyah gurih disajikan dengan saus cocol.', 6000, 'Snack', 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600&auto=format&fit=crop&q=80', true),
-  ('Mix Platter', 'Platter camilan lengkap kentang, sosis, dan nugget dalam satu piring.', 10000, 'Snack', 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80', true),
-  ('Basreng (M)', 'Bakso goreng krispi renyah bumbu pedas daun jeruk porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80', true),
-  ('Basreng (L)', 'Bakso goreng krispi renyah bumbu pedas daun jeruk porsi Large.', 10000, 'Snack', 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80', true),
-  ('Sosis Bakar', 'Sosis panggang gurih diolesi saus barbeque lezat manis pedas.', 5000, 'Snack', 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80', true),
-  ('Bakaran Seafood', 'Aneka sate olahan seafood bakar saus istimewa per porsi.', 10000, 'Snack', 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80', true),
-  ('Risoles', 'Risoles isi creamy lezat dengan kulit renyah keemasan per porsi.', 10000, 'Snack', 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&auto=format&fit=crop&q=80', true),
-  ('Burger Beef', 'Burger daging sapi gurih dengan sayuran segar dan saus spesial.', 8000, 'Snack', 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80', true),
-  ('Pentol Mercon', 'Pentol daging sapi kenyal dimasak dalam sambal cabe rawit mercon membakar lidah.', 10000, 'Snack', 'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=600&auto=format&fit=crop&q=80', true),
-  ('Donat Toping (M)', 'Donat lembut aneka topping coklat/keju porsi Medium.', 6000, 'Snack', 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=600&auto=format&fit=crop&q=80', true),
-  ('Donat Toping (L)', 'Donat lembut aneka topping porsi Large istimewa.', 10000, 'Snack', 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=600&auto=format&fit=crop&q=80', true),
-  ('Getuk Goreng', 'Getuk singkong manis legit digoreng renyah di luar lembut di dalam.', 6000, 'Snack', 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80', true),
-  ('Corndog Mozza', 'Corndog krispi lumer keju mozzarella mulur dengan saus mayonaise dan sambal.', 8000, 'Snack', 'https://images.unsplash.com/photo-1628294895950-9805252327bc?w=600&auto=format&fit=crop&q=80', true),
-  ('Corndog Sosis', 'Corndog renyah isi sosis daging gurih nikmat.', 7000, 'Snack', 'https://images.unsplash.com/photo-1628294895950-9805252327bc?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Milky Series
-  ('Ice Milky Matcha', 'Perpaduan susu segar creamy dan bubuk matcha aromatik dingin segar.', 8000, 'Milky Series', 'https://images.unsplash.com/photo-1536256263959-770b48d82b0a?w=600&auto=format&fit=crop&q=80', true),
-  ('Ice Milky Choco', 'Susu segar berpadu coklat pekat lezat pelepas dahaga.', 8000, 'Milky Series', 'https://images.unsplash.com/photo-1542990253-0d0f5be5f0ed?w=600&auto=format&fit=crop&q=80', true),
-  ('Ice Milky Taro', 'Rasa taro manis lembut dengan susu creamy segar berwarna ungu memikat.', 8000, 'Milky Series', 'https://images.unsplash.com/photo-1577805947697-89e18249d767?w=600&auto=format&fit=crop&q=80', true),
-  ('Ice Milky Redvelvet', 'Red velvet manis gurih berpadu susu dingin segar.', 8000, 'Milky Series', 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Renceng Series
-  ('Pop Ice', 'Minuman blender dingin segar aneka rasa nostalgia.', 4000, 'Renceng Series', 'https://images.unsplash.com/photo-1577805947697-89e18249d767?w=600&auto=format&fit=crop&q=80', true),
-  ('Nutrisari', 'Minuman sari jeruk kaya vitamin C disajikan dingin menyegarkan.', 4000, 'Renceng Series', 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Lokal Series
-  ('Ice Jeruk', 'Jeruk peras alami segar disajikan dingin dengan es batu.', 4000, 'Lokal Series', 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&auto=format&fit=crop&q=80', true),
-  ('Hot Jeruk', 'Jeruk peras hangat alami melegakan tenggorokan.', 4000, 'Lokal Series', 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&auto=format&fit=crop&q=80', true),
-  ('Hot Tea', 'Teh seduh hangat wangi melati alami dengan gula asli.', 4000, 'Lokal Series', 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80', true),
-  ('Es Teh Jumbo', 'Es teh manis segar disajikan dalam gelas porsi jumbo puas.', 4000, 'Lokal Series', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=600&auto=format&fit=crop&q=80', true),
-  ('Es Teler (Musiman)', 'Es teler santan segar isi alpukat, kelapa muda, dan nangka (ketersediaan musiman).', 10000, 'Lokal Series', 'https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?w=600&auto=format&fit=crop&q=80', true),
-  ('Es Jagung (Musiman)', 'Es jagung manis creamy khas dengan susu dan parutan keju (ketersediaan musiman).', 10000, 'Lokal Series', 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Tea Series
-  ('Ice Lychee Tea', 'Teh aromatik dipadukan sirup leci manis segar dengan buah leci dingin.', 6000, 'Tea Series', 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=600&auto=format&fit=crop&q=80', true),
-  ('Ice Lemon Tea', 'Teh segar dengan perasan lemon asli dingin pelepas dahaga.', 6000, 'Tea Series', 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Coffee Series
-  ('Black Coffee', 'Kopi hitam seduh aromatik khas biji kopi pilihan.', 5000, 'Coffee Series', 'https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?w=600&auto=format&fit=crop&q=80', true),
-  ('Nescafe Latte Ice', 'Kopi latte creamy Nescafe disajikan dingin menyegarkan.', 9000, 'Coffee Series', 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=600&auto=format&fit=crop&q=80', true),
-  ('Nescafe Latte Hot', 'Kopi latte hangat lembut menenangkan dari Nescafe.', 7000, 'Coffee Series', 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=600&auto=format&fit=crop&q=80', true),
-  ('Americano (Ice/Hot)', 'Espresso dengan air mineral segar (pilihan Ice / Hot, gula / no sugar).', 5000, 'Coffee Series', 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=600&auto=format&fit=crop&q=80', true),
-  ('Brown Sugar Coffee Latte', 'Kopi susu lembut berpadu lelehan gula aren murni aromatik.', 9000, 'Coffee Series', 'https://images.unsplash.com/photo-1534778101976-62847782c213?w=600&auto=format&fit=crop&q=80', true),
-  ('Butterscotch Coffee Latte', 'Kopi susu berpadu aroma sirup butterscotch manis gurih karamel.', 9000, 'Coffee Series', 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=600&auto=format&fit=crop&q=80', true),
-
-  -- Mocktail Series
-  ('Blood Sparkling', 'Mocktail merah segar bersoda dengan kombinasi sirup berry manis menggigit.', 8000, 'Mocktail Series', 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80', true),
-  ('Melon Squash', 'Kesegaran sirup melon berpadu soda dingin dan bulir selasih.', 8000, 'Mocktail Series', 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80', true),
-  ('Lemon Squash', 'Kesegaran perasan lemon asli bersoda dingin nendang pelepas dahaga.', 8000, 'Mocktail Series', 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80', true)
-on conflict do nothing;
-
-insert into public.vouchers (code, description, discount_type, discount_value, min_order, max_uses, current_uses, expires_at) values
-  ('LORONG10', 'Diskon 10% untuk pembelian pertamamu!', 'percentage', 10, 30000, 100, 34, now() + interval '7 days'),
-  ('WEEKEND20', 'Spesial weekend! Hemat 20rb untuk order di atas 75rb.', 'fixed', 20000, 75000, 50, 18, now() + interval '3 days'),
-  ('NEWMEMBER', 'Member baru? Dapatkan gratis pastry!', 'fixed', 15000, 50000, 200, 89, now() + interval '30 days')
-on conflict do nothing;
-
--- =============================================
--- Supabase Storage: Bucket menu-images
--- Buat bucket publik untuk foto menu
--- =============================================
-insert into storage.buckets (id, name, public)
-values ('menu-images', 'menu-images', true)
-on conflict (id) do update set public = true;
-
--- Policy read publik untuk foto menu
-drop policy if exists "Public read menu images" on storage.objects;
-create policy "Public read menu images"
-  on storage.objects for select
-  using (bucket_id = 'menu-images');
-
--- Policy upload foto menu (Hanya Admin)
-drop policy if exists "Allow upload menu images" on storage.objects;
-drop policy if exists "Admin upload menu images" on storage.objects;
-create policy "Admin upload menu images"
-  on storage.objects for insert
-  with check (bucket_id = 'menu-images' and public.is_admin());
-
--- Policy update foto menu (Hanya Admin)
-drop policy if exists "Allow update menu images" on storage.objects;
-drop policy if exists "Admin update menu images" on storage.objects;
-create policy "Admin update menu images"
-  on storage.objects for update
-  using (bucket_id = 'menu-images' and public.is_admin());
-
--- Policy delete foto menu (Hanya Admin)
-drop policy if exists "Allow delete menu images" on storage.objects;
-drop policy if exists "Admin delete menu images" on storage.objects;
-create policy "Admin delete menu images"
-  on storage.objects for delete
-  using (bucket_id = 'menu-images' and public.is_admin());
-
--- =============================================
--- 7. Sistem Poin Loyalitas & Kartu Member Digital
--- =============================================
-
--- Tabel loyalty_rewards (Katalog Penukaran Poin)
-create table if not exists public.loyalty_rewards (
-  id uuid default gen_random_uuid() primary key,
-  title text not null,
-  description text,
-  points_required integer not null check (points_required > 0),
-  reward_type text not null default 'voucher' check (reward_type in ('voucher', 'free_item', 'discount')),
-  discount_type text check (discount_type in ('percentage', 'fixed')),
-  discount_value numeric default 0,
-  min_order numeric default 0,
-  icon_name text default 'Tag',
-  is_active boolean not null default true,
-  created_at timestamptz default now()
+-- ------------------------------------------------------------
+-- 7. TABEL LOYALTY REWARDS & LOYALTY TRANSACTIONS
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.loyalty_rewards (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  points_required INTEGER NOT NULL CHECK (points_required > 0),
+  reward_type TEXT NOT NULL CHECK (reward_type IN ('voucher', 'free_item', 'merchandise')),
+  discount_type TEXT CHECK (discount_type IN ('percentage', 'fixed')),
+  discount_value NUMERIC CHECK (discount_value > 0),
+  min_order NUMERIC DEFAULT 0,
+  icon_name TEXT DEFAULT 'Tag',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-alter table public.loyalty_rewards enable row level security;
+ALTER TABLE public.loyalty_rewards ENABLE ROW LEVEL SECURITY;
 
-drop policy if exists "Loyalty rewards readable by everyone" on public.loyalty_rewards;
-create policy "Loyalty rewards readable by everyone"
-  on public.loyalty_rewards for select using (true);
+DROP POLICY IF EXISTS "Loyalty rewards readable by everyone" ON public.loyalty_rewards;
+CREATE POLICY "Loyalty rewards readable by everyone"
+  ON public.loyalty_rewards FOR SELECT USING (true);
 
-drop policy if exists "Loyalty rewards manageable by admin" on public.loyalty_rewards;
-create policy "Loyalty rewards manageable by admin"
-  on public.loyalty_rewards for all
-  using (public.is_admin())
-  with check (public.is_admin());
+DROP POLICY IF EXISTS "Loyalty rewards manageable by admin" ON public.loyalty_rewards;
+CREATE POLICY "Loyalty rewards manageable by admin"
+  ON public.loyalty_rewards FOR ALL USING (public.is_admin());
 
--- Tabel loyalty_transactions (Riwayat Perolehan & Penukaran Poin)
-create table if not exists public.loyalty_transactions (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users on delete cascade not null,
-  points integer not null, -- positif untuk earned/bonus/adjusted, negatif untuk redeemed
-  type text not null check (type in ('earned', 'redeemed', 'bonus', 'adjusted')),
-  description text not null,
-  order_id uuid references public.orders on delete set null,
-  created_at timestamptz default now()
+CREATE TABLE IF NOT EXISTS public.loyalty_transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  points INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('earned', 'redeemed', 'bonus', 'adjusted')),
+  description TEXT NOT NULL,
+  order_id UUID REFERENCES public.orders ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-alter table public.loyalty_transactions enable row level security;
+ALTER TABLE public.loyalty_transactions ENABLE ROW LEVEL SECURITY;
 
-drop policy if exists "Users can read own loyalty transactions" on public.loyalty_transactions;
-create policy "Users can read own loyalty transactions"
-  on public.loyalty_transactions for select
-  using (auth.uid() = user_id or public.is_staff());
+DROP POLICY IF EXISTS "Users can read own loyalty transactions" ON public.loyalty_transactions;
+CREATE POLICY "Users can read own loyalty transactions"
+  ON public.loyalty_transactions FOR SELECT
+  USING (auth.uid() = user_id OR public.is_staff());
 
-drop policy if exists "Users and staff can insert loyalty transactions" on public.loyalty_transactions;
-create policy "Users and staff can insert loyalty transactions"
-  on public.loyalty_transactions for insert
-  with check (auth.uid() = user_id or public.is_staff());
+DROP POLICY IF EXISTS "Users and staff can insert loyalty transactions" ON public.loyalty_transactions;
+CREATE POLICY "Users and staff can insert loyalty transactions"
+  ON public.loyalty_transactions FOR INSERT
+  WITH CHECK (auth.uid() = user_id OR public.is_staff());
 
-drop policy if exists "Admin can manage loyalty transactions" on public.loyalty_transactions;
-create policy "Admin can manage loyalty transactions"
-  on public.loyalty_transactions for all
-  using (public.is_admin())
-  with check (public.is_admin());
+DROP POLICY IF EXISTS "Admin can manage loyalty transactions" ON public.loyalty_transactions;
+CREATE POLICY "Admin can manage loyalty transactions"
+  ON public.loyalty_transactions FOR ALL USING (public.is_admin());
 
--- Seed default loyalty rewards
-insert into public.loyalty_rewards (title, description, points_required, reward_type, discount_type, discount_value, min_order, icon_name)
-values
+-- ------------------------------------------------------------
+-- 8. TABEL MENU REVIEWS & BALASAN BARISTA
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.menu_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  menu_item_id UUID NOT NULL REFERENCES public.menu_items(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  order_id UUID NULL REFERENCES public.orders(id) ON DELETE SET NULL,
+  user_name TEXT NOT NULL,
+  user_avatar TEXT NULL,
+  rating NUMERIC(2, 1) NOT NULL CHECK (rating >= 1.0 AND rating <= 5.0),
+  comment TEXT NOT NULL,
+  reply TEXT NULL,
+  replied_at TIMESTAMPTZ NULL,
+  replied_by UUID NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  is_approved BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_menu_reviews_menu_item_id ON public.menu_reviews(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_menu_reviews_user_id ON public.menu_reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_menu_reviews_created_at ON public.menu_reviews(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_menu_reviews_is_approved ON public.menu_reviews(is_approved);
+
+ALTER TABLE public.menu_reviews ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can read approved reviews" ON public.menu_reviews;
+CREATE POLICY "Public can read approved reviews"
+  ON public.menu_reviews FOR SELECT
+  USING (is_approved = true OR auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can insert reviews" ON public.menu_reviews;
+CREATE POLICY "Authenticated users can insert reviews"
+  ON public.menu_reviews FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users or staff can update reviews" ON public.menu_reviews;
+CREATE POLICY "Users or staff can update reviews"
+  ON public.menu_reviews FOR UPDATE TO authenticated
+  USING (
+    auth.uid() = user_id OR public.is_staff()
+  );
+
+DROP POLICY IF EXISTS "Users or admin can delete reviews" ON public.menu_reviews;
+CREATE POLICY "Users or admin can delete reviews"
+  ON public.menu_reviews FOR DELETE TO authenticated
+  USING (
+    auth.uid() = user_id OR public.is_admin()
+  );
+
+-- ------------------------------------------------------------
+-- 9. SEED DATA DEFAULT (VOUCHERS & LOYALTY REWARDS)
+-- ------------------------------------------------------------
+INSERT INTO public.vouchers (code, description, discount_type, discount_value, min_order, max_uses, expires_at)
+VALUES
+  ('RASA10', 'Diskon 10% untuk semua menu tanpa min. order', 'percentage', 10, 0, 200, NOW() + INTERVAL '30 days'),
+  ('HEMAT20', 'Potongan Rp 20.000 (Min. transaksi Rp 50.000)', 'fixed', 20000, 50000, 100, NOW() + INTERVAL '14 days'),
+  ('NGOPIASIK', 'Diskon 15% khusus pembelian aneka varian Kopi', 'percentage', 15, 25000, 150, NOW() + INTERVAL '21 days')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO public.loyalty_rewards (title, description, points_required, reward_type, discount_type, discount_value, min_order, icon_name)
+VALUES
   ('Voucher Hemat Rp 10.000', 'Potongan langsung Rp 10.000 untuk pesanan apa pun dengan minimal belanja Rp 35.000.', 15, 'voucher', 'fixed', 10000, 35000, 'Tag'),
   ('Voucher Diskon 20%', 'Diskon 20% untuk semua menu racikan Lorong Rasa (Min. belanja Rp 45.000).', 25, 'voucher', 'percentage', 20, 45000, 'Percent'),
   ('Voucher Spesial Rp 25.000', 'Potongan besar Rp 25.000 untuk pesanan dine in maupun takeaway dengan min. belanja Rp 60.000.', 40, 'voucher', 'fixed', 25000, 60000, 'Sparkles'),
   ('Traktiran Kopi Lorong Rasa (Rp 35.000)', 'Voucher senilai Rp 35.000 setara free minuman signature favoritmu!', 60, 'voucher', 'fixed', 35000, 35000, 'Coffee')
-on conflict do nothing;
+ON CONFLICT DO NOTHING;

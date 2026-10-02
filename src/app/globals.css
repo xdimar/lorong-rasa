@@ -898,11 +898,36 @@
 .admin-signout-btn:hover { background: #e85a4a15; }
 
 /* --- Responsive: Admin layout --- */
+.admin-sidebar-desktop {
+  width: 240px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 90;
+  background: var(--color-bg-card);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-main-wrapper {
+  margin-left: 240px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100vh;
+}
+
 .admin-main-content {
   padding: 2rem 1.5rem;
 }
+
 @media (max-width: 768px) {
   .admin-sidebar-desktop { display: none !important; }
+  .admin-main-wrapper { margin-left: 0 !important; }
   .admin-menu-btn { display: flex !important; }
   .admin-main-content { padding: 1.25rem 1rem !important; }
 }
