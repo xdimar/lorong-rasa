@@ -7,6 +7,7 @@ import { ToastProvider } from '@/components/providers/ToastProvider'
 import { CartDrawer } from '@/components/cart/CartDrawer'
 import { DevGreeting } from '@/components/layout/DevGreeting'
 import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const playfair = Playfair_Display({
   subsets: ['latin'],
@@ -106,6 +107,7 @@ export default function RootLayout({
           </CartProvider>
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
