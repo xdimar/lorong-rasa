@@ -12,6 +12,7 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "@types/three": "^0.186.0",
+    "@vercel/analytics": "^2.0.1",
     "framer-motion": "^13.4.6",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.48.0",
