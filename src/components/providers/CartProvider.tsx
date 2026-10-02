@@ -12,11 +12,13 @@ export interface CartItem {
   notes?: string
 }
 
-interface AppliedVoucher {
+export interface AppliedVoucher {
   code: string
-  discount_type: 'percentage' | 'fixed'
+  discount_type: 'percentage' | 'fixed' | 'product'
   discount_value: number
   min_order: number
+  product_name?: string | null
+  product_menu_item_id?: string | null
 }
 
 interface CartContextType {
@@ -31,7 +33,7 @@ interface CartContextType {
   discount: number
   total: number
   voucher: AppliedVoucher | null
-  applyVoucher: (voucher: AppliedVoucher) => boolean
+  applyVoucher: (voucher: AppliedVoucher, force?: boolean) => boolean
   removeVoucher: () => void
   isCartOpen: boolean
   openCart: () => void
@@ -122,21 +124,31 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const discount = useMemo(() => {
     if (!voucher) return 0
-    if (subtotal < voucher.min_order) return 0
+    if (voucher.discount_type !== 'product' && subtotal < voucher.min_order) return 0
     let val = 0
     if (voucher.discount_type === 'percentage') {
-      val = Math.round(subtotal * voucher.discount_value / 100)
+      val = Math.round((subtotal * voucher.discount_value) / 100)
+    } else if (voucher.discount_type === 'product') {
+      const item = items.find(
+        i => (voucher.product_menu_item_id && i.id === voucher.product_menu_item_id) ||
+             (voucher.product_name && i.name.toLowerCase() === voucher.product_name.toLowerCase())
+      )
+      if (item) {
+        val = Math.round((item.price * voucher.discount_value) / 100)
+      } else {
+        val = 0
+      }
     } else {
       val = voucher.discount_value
     }
     return Math.min(val, subtotal)
-  }, [voucher, subtotal])
+  }, [voucher, subtotal, items])
 
   const total = Math.max(0, subtotal - discount)
 
-  const applyVoucher = useCallback((v: AppliedVoucher): boolean => {
+  const applyVoucher = useCallback((v: AppliedVoucher, force = false): boolean => {
     const currentSubtotal = itemsRef.current.reduce((sum, i) => sum + i.price * i.quantity, 0)
-    if (currentSubtotal < v.min_order) return false
+    if (!force && currentSubtotal > 0 && currentSubtotal < v.min_order) return false
     setVoucher(v)
     return true
   }, [])

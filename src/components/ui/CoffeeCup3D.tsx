@@ -152,10 +152,11 @@ export function CoffeeCup3D({
     const ctx = canvas.getContext('2d')
     if (ctx) {
       const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.8)')
-      grad.addColorStop(0.3, 'rgba(240, 235, 225, 0.4)')
-      grad.addColorStop(0.7, 'rgba(220, 215, 205, 0.1)')
-      grad.addColorStop(1, 'rgba(200, 195, 185, 0)')
+      grad.addColorStop(0, 'rgba(255, 248, 238, 0.95)')
+      grad.addColorStop(0.25, 'rgba(245, 235, 220, 0.55)')
+      grad.addColorStop(0.55, 'rgba(235, 220, 200, 0.18)')
+      grad.addColorStop(0.8, 'rgba(215, 195, 175, 0.05)')
+      grad.addColorStop(1, 'rgba(200, 180, 160, 0)')
       ctx.fillStyle = grad
       ctx.fillRect(0, 0, 128, 128)
     }
@@ -331,30 +332,30 @@ export function CoffeeCup3D({
     }
     cupGroup.add(iceGroup)
 
-    // --- F. Rising Steam Particles ---
-    const particleCount = 28
+    // --- F. Rising Organic Steam Particles ---
+    const particleCount = 75
     const steamGeo = new THREE.BufferGeometry()
     const steamPositions = new Float32Array(particleCount * 3)
     const steamVelocities = new Float32Array(particleCount * 3)
 
     for (let i = 0; i < particleCount; i++) {
       const angle = Math.random() * Math.PI * 2
-      const radiusDist = Math.random() * 0.75
+      const radiusDist = Math.random() * 0.72
       steamPositions[i * 3] = Math.cos(angle) * radiusDist
-      steamPositions[i * 3 + 1] = 1.6 + Math.random() * 1.8
+      steamPositions[i * 3 + 1] = 1.6 + Math.random() * 2.0
       steamPositions[i * 3 + 2] = Math.sin(angle) * radiusDist
 
-      steamVelocities[i * 3] = (Math.random() - 0.5) * 0.004
+      steamVelocities[i * 3] = (Math.random() - 0.5) * 0.005
       steamVelocities[i * 3 + 1] = 0.008 + Math.random() * 0.012
-      steamVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.004
+      steamVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.005
     }
 
     steamGeo.setAttribute('position', new THREE.BufferAttribute(steamPositions, 3))
     const steamMat = new THREE.PointsMaterial({
-      size: 0.55,
+      size: 0.68,
       map: createSteamTexture(),
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.45,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     })
@@ -519,24 +520,37 @@ export function CoffeeCup3D({
       // Gentle floating bob
       state.cupGroup.position.y = Math.sin(elapsed * 1.5) * 0.035
 
-      // B. Animate Steam Particles
+      // B. Animate Organic Steam Particles (Curl Noise Turbulence & Airflow Drag)
       if (state.steamParticles && state.steamPositions && state.steamVelocities) {
         const positions = state.steamPositions
         const velocities = state.steamVelocities
         const count = positions.length / 3
 
-        for (let i = 0; i < count; i++) {
-          positions[i * 3 + 1] += velocities[i * 3 + 1]
-          positions[i * 3] += Math.sin(elapsed * 2 + i) * 0.001
-          positions[i * 3 + 2] += Math.cos(elapsed * 2 + i) * 0.001
+        // Airflow drag coupling when user rotates the cup
+        const dragX = -state.rotationVelocity.y * 0.12
+        const dragZ = -state.rotationVelocity.x * 0.12
 
-          // Reset particle to cup surface when it floats up too high
-          if (positions[i * 3 + 1] > 3.4) {
+        for (let i = 0; i < count; i++) {
+          const idx = i * 3
+          const currentY = positions[idx + 1]
+          const heightRatio = Math.max(0, Math.min(1, (currentY - 1.6) / 2.0))
+
+          // Upward drift with thermal acceleration
+          positions[idx + 1] += velocities[idx + 1] * (1.0 + Math.sin(elapsed * 1.5 + i) * 0.12)
+
+          // Natural curl turbulence that billows outward as steam rises
+          const curlFreq = 2.2 + (i % 5) * 0.3
+          const curlAmp = 0.0028 * (1.0 + heightRatio * 1.6)
+          positions[idx] += Math.sin(elapsed * curlFreq + i * 0.7) * curlAmp + dragX
+          positions[idx + 2] += Math.cos(elapsed * curlFreq + i * 0.7) * curlAmp + dragZ
+
+          // Reset particle to cup surface when it dissipates at the top
+          if (positions[idx + 1] > 3.65) {
             const angle = Math.random() * Math.PI * 2
-            const rDist = Math.random() * 0.75
-            positions[i * 3] = Math.cos(angle) * rDist
-            positions[i * 3 + 1] = 1.58
-            positions[i * 3 + 2] = Math.sin(angle) * rDist
+            const rDist = Math.random() * 0.65
+            positions[idx] = Math.cos(angle) * rDist
+            positions[idx + 1] = 1.6 + Math.random() * 0.12
+            positions[idx + 2] = Math.sin(angle) * rDist
           }
         }
         state.steamParticles.geometry.attributes.position.needsUpdate = true

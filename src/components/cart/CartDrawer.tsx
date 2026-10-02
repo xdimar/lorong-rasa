@@ -181,14 +181,32 @@ export function CartDrawer() {
                         }}>
                           {item.name}
                         </h4>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--color-primary)',
-                          fontFamily: 'var(--font-inter)',
-                          fontWeight: 500,
-                        }}>
-                          {item.category}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--color-primary)',
+                            fontFamily: 'var(--font-inter)',
+                            fontWeight: 500,
+                          }}>
+                            {item.category}
+                          </span>
+                          {voucher && voucher.discount_type === 'product' && (
+                            (voucher.product_menu_item_id && item.id === voucher.product_menu_item_id) ||
+                            (voucher.product_name && item.name.toLowerCase() === voucher.product_name.toLowerCase())
+                          ) && (
+                            <span style={{
+                              fontSize: '0.68rem',
+                              color: '#4a9e6a',
+                              background: 'rgba(74, 158, 106, 0.12)',
+                              border: '1px solid rgba(74, 158, 106, 0.3)',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              fontWeight: 700,
+                            }}>
+                              Diskon {voucher.discount_value}% Aktif
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <button
                         onClick={() => removeItem(item.id)}
@@ -303,7 +321,9 @@ export function CartDrawer() {
               </div>
               {voucher && discount > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontFamily: 'var(--font-inter)' }}>
-                  <span style={{ color: '#4a9e6a' }}>Diskon ({voucher.code})</span>
+                  <span style={{ color: '#4a9e6a' }}>
+                    Diskon ({voucher.code}{voucher.discount_type === 'product' && voucher.product_name ? ` - ${voucher.product_name}` : ''})
+                  </span>
                   <span style={{ color: '#4a9e6a', fontWeight: 600 }}>-Rp {discount.toLocaleString('id-ID')}</span>
                 </div>
               )}

@@ -132,6 +132,7 @@ export function Navbar() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           {/* Cart Trigger — hover via CSS .navbar-cart-btn */}
           <button
+            id="navbar-cart-btn"
             onClick={openCart}
             aria-label="Buka Keranjang Belanja"
             className="navbar-cart-btn"

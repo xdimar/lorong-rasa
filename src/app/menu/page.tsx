@@ -7,6 +7,7 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { useCart } from '@/components/providers/CartProvider'
+import { useFlyToCart } from '@/components/cart/FlyToCartOverlay'
 import { useToast } from '@/components/providers/ToastProvider'
 import { MenuReviewModal } from '@/components/menu/MenuReviewModal'
 
@@ -363,10 +364,12 @@ function MenuCard({
 }) {
   const color = categoryColors[item.category] || 'var(--color-primary)'
   const { addItem } = useCart()
+  const { flyToCart } = useFlyToCart()
   const { showToast } = useToast()
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation()
+    flyToCart(e, item.image_url)
     addItem({
       id: item.id,
       name: item.name,

@@ -49,14 +49,20 @@ const fallbackMenuItems: MenuItemData[] = [
   { id: '6', category: 'Non Coffee', name: 'Coklat Tanah', description: 'Minuman coklat premium dari kakao asli Sulawesi dengan sentuhan vanilla.', price: 28000, is_available: true },
 ]
 
+import { useFlyToCart } from '@/components/cart/FlyToCartOverlay'
+
 export function MenuSection() {
   const [menuItems, setMenuItems] = useState<MenuItemData[]>(fallbackMenuItems)
   const [selectedReviewItem, setSelectedReviewItem] = useState<MenuItem | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
   const { addItem, openCart } = useCart()
+  const { flyToCart } = useFlyToCart()
   const { showToast } = useToast()
 
-  const handleOrder = (item: MenuItemData) => {
+  const handleOrder = (item: MenuItemData, e?: React.MouseEvent) => {
+    if (e) {
+      flyToCart(e, item.image_url)
+    }
     addItem({
       id: item.id,
       name: item.name,
@@ -65,7 +71,6 @@ export function MenuSection() {
       image_url: item.image_url,
     })
     showToast(`${item.name} ditambahkan ke keranjang`, 'cart')
-    openCart()
   }
 
   useEffect(() => {
@@ -251,7 +256,7 @@ export function MenuSection() {
                       Rp {item.price.toLocaleString('id-ID')}
                     </span>
                     <button
-                      onClick={() => handleOrder(item)}
+                      onClick={(e) => handleOrder(item, e)}
                       className="btn-primary"
                       style={{
                         padding: '0.45rem 1rem',

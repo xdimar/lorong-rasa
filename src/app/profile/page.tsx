@@ -35,10 +35,12 @@ interface Voucher {
   id: string
   code: string
   description: string
-  discount_type: 'percentage' | 'fixed'
+  discount_type: 'percentage' | 'fixed' | 'product'
   discount_value: number
   expires_at: string
   min_order: number
+  product_name?: string | null
+  share_token?: string | null
 }
 
 interface UserVoucher {
@@ -186,6 +188,16 @@ export default function ProfilePage() {
         if (data) {
           setProfile(data)
           setNewName(data.full_name || '')
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search)
+            const claimParam = params.get('claim')
+            if (claimParam) {
+              const code = claimParam.trim().toUpperCase()
+              setPromoInput(code)
+              setActiveTab('vouchers')
+              performVoucherClaim(code, data.id)
+            }
+          }
         } else {
           setProfile({
             id: user.id,
@@ -195,6 +207,16 @@ export default function ProfilePage() {
             created_at: user.created_at || new Date().toISOString(),
             loyalty_points: 0,
           })
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search)
+            const claimParam = params.get('claim')
+            if (claimParam) {
+              const code = claimParam.trim().toUpperCase()
+              setPromoInput(code)
+              setActiveTab('vouchers')
+              performVoucherClaim(code, user.id)
+            }
+          }
         }
 
         // Fetch user's claimed vouchers (1 user 1 voucher)
@@ -222,12 +244,8 @@ export default function ProfilePage() {
     fetchProfile()
   }, [])
 
-
-  const handleClaimVoucher = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const code = promoInput.trim().toUpperCase()
-    if (!code || !profile) return
-
+  const performVoucherClaim = async (code: string, userId: string) => {
+    if (!code || !userId) return
     setClaimLoading(true)
     setClaimMessage(null)
 
@@ -262,16 +280,16 @@ export default function ProfilePage() {
       const { data: existing } = await supabase
         .from('user_vouchers')
         .select('id, status')
-        .eq('user_id', profile.id)
+        .eq('user_id', userId)
         .eq('voucher_id', voucher.id)
         .single()
 
       if (existing) {
         setClaimMessage({
-          type: 'error',
+          type: existing.status === 'used' ? 'error' : 'success',
           text: existing.status === 'used'
             ? 'Voucher ini sudah pernah kamu gunakan sebelumnya (Maksimal 1 voucher per akun).'
-            : 'Voucher ini sudah ada di dompet akunmu!',
+            : 'Voucher ini sudah ada di dompet akunmu dan siap digunakan!',
         })
         setClaimLoading(false)
         return
@@ -281,7 +299,7 @@ export default function ProfilePage() {
       const { data: newClaim, error: claimErr } = await supabase
         .from('user_vouchers')
         .insert({
-          user_id: profile.id,
+          user_id: userId,
           voucher_id: voucher.id,
           voucher_code: voucher.code,
           status: 'claimed',
@@ -295,14 +313,24 @@ export default function ProfilePage() {
         return
       }
 
-      setClaimMessage({ type: 'success', text: `Selamat! Voucher ${voucher.code} berhasil ditambahkan ke akun Anda.` })
+      setClaimMessage({ type: 'success', text: `🎉 Selamat! Voucher ${voucher.code} berhasil ditambahkan ke akun Anda.` })
       setPromoInput('')
-      fetchUserVouchers(profile.id)
+      fetchUserVouchers(userId)
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', '/profile')
+      }
     } catch {
       setClaimMessage({ type: 'error', text: 'Terjadi kendala jaringan saat mengklaim voucher.' })
     } finally {
       setClaimLoading(false)
     }
+  }
+
+  const handleClaimVoucher = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const code = promoInput.trim().toUpperCase()
+    if (!code || !profile) return
+    await performVoucherClaim(code, profile.id)
   }
 
   const saveName = async () => {
