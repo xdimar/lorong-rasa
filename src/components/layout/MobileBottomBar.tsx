@@ -23,8 +23,13 @@ export function MobileBottomBar() {
     return () => window.removeEventListener('resize', checkViewport)
   }, [])
 
-  // Sembunyikan jika di halaman admin ATAU jika bukan perangkat mobile ponsel
-  if (pathname.startsWith('/admin') || !isMobile) {
+  // Sembunyikan jika di halaman admin, login, register, ATAU jika bukan perangkat mobile ponsel
+  if (
+    pathname.startsWith('/admin') ||
+    pathname === '/login' ||
+    pathname === '/register' ||
+    !isMobile
+  ) {
     return null
   }
 

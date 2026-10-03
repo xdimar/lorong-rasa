@@ -20,7 +20,7 @@ const footerColumns = [
       { href: '/#voucher', label: 'Klaim Voucher Diskon' },
       { href: '/kebijakan-privasi', label: 'Kebijakan Privasi' },
       { href: '/syarat-ketentuan', label: 'Syarat & Ketentuan' },
-      { href: '/login', label: 'Login Pelanggan / Kasir' },
+      { href: '/login', label: 'Masuk Akun / Kasir' },
     ],
   },
   {

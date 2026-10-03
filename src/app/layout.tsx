@@ -85,6 +85,7 @@ export const metadata: Metadata = {
 
 import { FlyToCartProvider } from '@/components/cart/FlyToCartOverlay'
 import { MobileBottomBar } from '@/components/layout/MobileBottomBar'
+import { JsonLd } from '@/components/seo/JsonLd'
 
 export default function RootLayout({
   children,
@@ -93,6 +94,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" suppressHydrationWarning data-scroll-behavior="smooth">
+      <head>
+        <JsonLd />
+      </head>
       <body className={`${playfair.variable} ${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
           <CartProvider>

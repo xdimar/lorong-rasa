@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, X, Coffee, User as UserIcon, ShoppingBag, Shield } from 'lucide-react'
@@ -8,6 +8,7 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
+import { DynamicCoffeeLogo } from '@/components/ui/DynamicCoffeeLogo'
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -16,6 +17,9 @@ export function Navbar() {
   const [role, setRole] = useState<string>('user')
   const pathname = usePathname()
   const { totalItems, openCart } = useCart()
+
+  // Track user IDs yang sudah pernah dicoba self-healing agar tidak memanggil insert berulang kali
+  const healedUsersRef = useRef<Set<string>>(new Set())
 
   // Stable client instance — prevents listener duplication on every render
   const supabase = useMemo(() => createClient(), [])
@@ -28,13 +32,34 @@ export function Navbar() {
 
   // Single auth listener — onAuthStateChange fires immediately with INITIAL_SESSION
   // so a separate checkAuth() call is redundant and causes double DB fetches.
-  const fetchRole = useCallback(async (userId: string) => {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    if (profile?.role) setRole(profile.role)
+  const fetchRole = useCallback(async (userId: string, userEmail?: string, userFullName?: string) => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profile?.role) {
+        setRole(profile.role)
+      } else if (userId && userEmail && !healedUsersRef.current.has(userId)) {
+        healedUsersRef.current.add(userId)
+        // Self-healing: jika baris profil belum terbentuk, inisialisasi otomatis satu kali
+        const { data: created } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: userEmail,
+            full_name: userFullName || userEmail.split('@')[0],
+            role: 'customer'
+          })
+          .select('role')
+          .maybeSingle()
+        if (created?.role) setRole(created.role)
+      }
+    } catch {
+      // Abaikan error jaringan/offline agar Navbar tetap responsif
+    }
   }, [supabase])
 
   useEffect(() => {
@@ -42,7 +67,11 @@ export function Navbar() {
       async (_event: AuthChangeEvent, session: Session | null) => {
         if (session?.user) {
           setUser(session.user)
-          await fetchRole(session.user.id)
+          await fetchRole(
+            session.user.id,
+            session.user.email || '',
+            session.user.user_metadata?.full_name
+          )
         } else {
           setUser(null)
           setRole('user')
@@ -86,27 +115,18 @@ export function Navbar() {
     >
       <div className="container-custom" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         {/* Logo */}
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 15px var(--color-primary-glow)',
-          }}>
-            <Coffee size={20} color="white" />
-          </div>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none' }}>
+          <DynamicCoffeeLogo scrolled={scrolled} />
           <span style={{
             fontFamily: 'var(--font-playfair)',
             fontWeight: 700,
-            fontSize: '1.4rem',
+            fontSize: scrolled ? '1.3rem' : '1.45rem',
             background: 'linear-gradient(135deg, var(--color-primary), var(--color-gold))',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
+            letterSpacing: '-0.01em',
+            transition: 'font-size 0.35s ease',
           }}>
             Lorong Rasa
           </span>
@@ -194,7 +214,7 @@ export function Navbar() {
             ) : (
               <>
                 <Link href="/login" className="btn-outline" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}>
-                  Login
+                  Masuk
                 </Link>
                 <Link href="/register" className="btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}>
                   Daftar
@@ -297,7 +317,7 @@ export function Navbar() {
               </>
             ) : (
               <>
-                <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-outline" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center' }}>Login</Link>
+                <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-outline" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center' }}>Masuk</Link>
                 <Link href="/register" onClick={() => setMobileOpen(false)} className="btn-primary" style={{ flex: 1, textAlign: 'center', padding: '0.65rem', justifyContent: 'center' }}>Daftar</Link>
               </>
             )}

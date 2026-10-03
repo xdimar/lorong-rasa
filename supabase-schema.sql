@@ -30,28 +30,40 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 
 -- Helper functions untuk cek role di RLS
 CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'admin'
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 CREATE OR REPLACE FUNCTION public.is_staff()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role IN ('admin', 'cashier')
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- Trigger auto-create profile saat user sign up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
 BEGIN
   INSERT INTO public.profiles (id, email, full_name, role)
   VALUES (
@@ -60,10 +72,21 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
     'customer'
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    full_name = COALESCE(EXCLUDED.full_name, public.profiles.full_name);
   RETURN NEW;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE WARNING 'handle_new_user error: %', SQLERRM;
+    RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+-- Izin eksekusi internal Supabase & cegah pemanggilan via public API
+ALTER FUNCTION public.handle_new_user() OWNER TO postgres;
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.handle_new_user() TO postgres, supabase_auth_admin, service_role;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -75,6 +98,16 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Profiles readable by authenticated users" ON public.profiles;
 CREATE POLICY "Profiles readable by authenticated users"
   ON public.profiles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
+CREATE POLICY "Users can insert own profile"
+  ON public.profiles FOR INSERT
+  WITH CHECK (
+    (auth.uid() IS NOT NULL AND auth.uid() = id)
+    OR public.is_admin()
+    OR auth.role() = 'service_role'
+    OR auth.role() = 'supabase_auth_admin'
+  );
 
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile"

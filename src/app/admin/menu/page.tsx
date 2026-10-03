@@ -266,7 +266,7 @@ export default function MenuAdminPage() {
             .from('profiles')
             .select('role')
             .eq('id', user.id)
-            .single()
+            .maybeSingle()
           if (profile?.role) {
             setUserRole(profile.role as 'admin' | 'cashier')
           }

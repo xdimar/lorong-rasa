@@ -21,6 +21,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
+import { LiveOrderTracker } from '@/components/orders/LiveOrderTracker'
 
 interface Order {
   id: string
@@ -161,133 +162,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       <Navbar />
       <main style={{ minHeight: '100vh', background: 'var(--color-bg)', paddingTop: '100px', paddingBottom: '4rem' }}>
         <div className="container-custom" style={{ maxWidth: '840px' }}>
-          {/* Header Card */}
-          <div style={{
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-xl)',
-            padding: 'clamp(1.5rem, 4vw, 2.5rem)',
-            textAlign: 'center',
-            marginBottom: '2rem',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: '-60px',
-              right: '-60px',
-              width: '180px',
-              height: '180px',
-              borderRadius: '50%',
-              background: 'radial-gradient(circle, var(--color-primary-glow) 0%, transparent 70%)',
-              pointerEvents: 'none',
-            }} />
-
-            <div style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '50%',
-              background: order.status === 'cancelled'
-                ? '#e85a4a22'
-                : 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1.25rem',
-              boxShadow: '0 8px 24px var(--color-primary-glow)',
-            }}>
-              {order.status === 'cancelled' ? (
-                <AlertCircle size={32} color="#e85a4a" />
-              ) : (
-                <Coffee size={32} color="white" />
-              )}
-            </div>
-
-            <span style={{
-              fontSize: '0.8rem',
-              fontFamily: 'var(--font-inter)',
-              color: 'var(--color-primary)',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-            }}>
-              ID Pesanan: #{order.id.slice(0, 8).toUpperCase()}
-            </span>
-
-            <h1 style={{
-              fontSize: 'clamp(1.6rem, 4vw, 2.2rem)',
-              fontFamily: 'var(--font-playfair)',
-              marginTop: '0.35rem',
-              marginBottom: '0.5rem',
-              color: 'var(--color-text)',
-            }}>
-              {order.status === 'cancelled' ? 'Pesanan Dibatalkan' : 'Pesanan Sedang Diproses'}
-            </h1>
-
-            <p style={{
-              color: 'var(--color-text-muted)',
-              fontFamily: 'var(--font-inter)',
-              fontSize: '0.92rem',
-              maxWidth: '460px',
-              margin: '0 auto',
-            }}>
-              Terima kasih, <strong>{order.customer_name}</strong>! Tunjukkan halaman ini atau QR Code kepada kasir/barista kami.
-            </p>
-
-            {/* Status Flow */}
-            {order.status !== 'cancelled' && (
-              <div style={{
-                marginTop: '2.5rem',
-                paddingTop: '2rem',
-                borderTop: '1px solid var(--color-border)',
-              }}>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${statusSteps.length}, 1fr)`,
-                  gap: '0.5rem',
-                  position: 'relative',
-                }}>
-                  {statusSteps.map((step, idx) => {
-                    const isDone = currentStepIdx >= idx
-                    const isCurrent = currentStepIdx === idx
-                    return (
-                      <div key={step.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          background: isCurrent
-                            ? 'var(--color-primary)'
-                            : isDone
-                            ? '#4a9e6a'
-                            : 'var(--color-bg-secondary)',
-                          border: `2px solid ${isCurrent || isDone ? 'transparent' : 'var(--color-border)'}`,
-                          color: isDone || isCurrent ? 'white' : 'var(--color-text-muted)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.8rem',
-                          fontWeight: 700,
-                          transition: 'all 0.3s',
-                          boxShadow: isCurrent ? '0 0 16px var(--color-primary-glow)' : 'none',
-                        }}>
-                          {isDone && !isCurrent ? <CheckCircle2 size={16} /> : idx + 1}
-                        </div>
-                        <div style={{
-                          fontSize: '0.78rem',
-                          fontWeight: isCurrent ? 700 : 500,
-                          color: isCurrent ? 'var(--color-primary)' : isDone ? 'var(--color-text)' : 'var(--color-text-muted)',
-                          fontFamily: 'var(--font-inter)',
-                          textAlign: 'center',
-                        }}>
-                          {step.label}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+          {/* Live Order Tracker Banner */}
+          <div style={{ marginBottom: '2rem' }}>
+            <LiveOrderTracker order={order} variant="full" showQuickLinks={false} />
           </div>
 
           {/* Details Grid */}

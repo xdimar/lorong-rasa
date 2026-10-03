@@ -6,13 +6,15 @@ import Link from 'next/link'
 import {
   User, Mail, Calendar, Edit2, Check, X, Tag, Shield, Coffee, QrCode, Sparkles,
   ShoppingBag, Clock, ChevronRight, Loader2, AlertCircle, CheckCircle2,
-  Gift, Award, Coins, History, Percent, Star, Crown, ArrowRight, Copy
+  Gift, Award, Coins, History, Percent, Star, Crown, ArrowRight, Copy,
+  UtensilsCrossed, Package
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
+import { LiveOrderTracker, ORDER_STATUS_CONFIG } from '@/components/orders/LiveOrderTracker'
 import {
   getLoyaltyTier,
   getTierProgress,
@@ -183,7 +185,7 @@ export default function ProfilePage() {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single()
+          .maybeSingle()
 
         if (data) {
           setProfile(data)
@@ -199,14 +201,17 @@ export default function ProfilePage() {
             }
           }
         } else {
-          setProfile({
+          const fallbackProfile = {
             id: user.id,
             email: user.email || '',
-            full_name: user.user_metadata?.full_name || '',
-            role: 'user',
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || '',
+            role: 'customer',
             created_at: user.created_at || new Date().toISOString(),
             loyalty_points: 0,
-          })
+          }
+          await supabase.from('profiles').insert(fallbackProfile)
+          setProfile(fallbackProfile)
+          setNewName(fallbackProfile.full_name)
           if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search)
             const claimParam = params.get('claim')
@@ -234,6 +239,33 @@ export default function ProfilePage() {
 
         if (ordersData) {
           setUserOrders(ordersData)
+        }
+
+        // Real-time subscription to user's orders
+        const ordersChannel = supabase
+          .channel(`profile-orders-${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'orders',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload: { eventType: string; new: UserOrder }) => {
+              if (payload.eventType === 'UPDATE') {
+                setUserOrders((prev) =>
+                  prev.map((o) => (o.id === payload.new.id ? { ...o, ...payload.new } : o))
+                )
+              } else if (payload.eventType === 'INSERT') {
+                setUserOrders((prev) => [payload.new, ...prev])
+              }
+            }
+          )
+          .subscribe()
+
+        return () => {
+          supabase.removeChannel(ordersChannel)
         }
       } catch {
         // Continue
@@ -398,6 +430,11 @@ export default function ProfilePage() {
   }
 
   if (!profile) return null
+
+  const activeOrder = userOrders.find((o) =>
+    ['pending', 'confirmed', 'preparing', 'ready'].includes(o.status)
+  )
+  const pastOrders = userOrders.filter((o) => o.id !== activeOrder?.id)
 
   return (
     <>
@@ -732,6 +769,60 @@ export default function ProfilePage() {
 
             {/* Right: Available Vouchers & My Orders Tabs */}
             <div>
+              {/* Active Order Teaser Banner (when user is on other tabs) */}
+              {activeOrder && activeTab !== 'orders' && (
+                <div
+                  onClick={() => setActiveTab('orders')}
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(232, 151, 58, 0.15), rgba(212, 160, 74, 0.08))',
+                    border: '1.5px solid var(--color-primary)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '0.85rem 1.25rem',
+                    marginBottom: '1.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 18px var(--color-primary-glow)',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span
+                      style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        background: 'var(--color-primary)',
+                        boxShadow: '0 0 10px var(--color-primary)',
+                        display: 'inline-block',
+                        animation: 'pulse 1.5s infinite',
+                      }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                        Pesanan #{activeOrder.id.slice(0, 8).toUpperCase()} Sedang Diproses!
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                        Status: {ORDER_STATUS_CONFIG[activeOrder.status]?.title || activeOrder.status} • Klik untuk pantau live
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: 'var(--color-primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    Pantau <ChevronRight size={15} />
+                  </span>
+                </div>
+              )}
+
               <AnimateOnScroll animation="fade-right">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.5rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem', overflowX: 'auto', padding: '0 2px 0.75rem' }}>
                   <button
@@ -816,14 +907,27 @@ export default function ProfilePage() {
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '8px',
                       whiteSpace: 'nowrap',
                       fontFamily: 'var(--font-inter)',
                       transition: 'all 0.2s',
                     }}
                   >
                     <ShoppingBag size={15} />
-                    Pesanan Saya ({userOrders.length})
+                    <span>Pesanan Saya ({userOrders.length})</span>
+                    {activeOrder && (
+                      <span
+                        style={{
+                          width: '7px',
+                          height: '7px',
+                          borderRadius: '50%',
+                          background: activeTab === 'orders' ? '#ffffff' : 'var(--color-primary)',
+                          boxShadow: '0 0 8px var(--color-primary)',
+                          display: 'inline-block',
+                          animation: 'pulse 1.5s infinite',
+                        }}
+                      />
+                    )}
                   </button>
                 </div>
               </AnimateOnScroll>
@@ -1349,58 +1453,116 @@ export default function ProfilePage() {
                     </div>
                   </AnimateOnScroll>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {userOrders.map((o, idx) => (
-                      <AnimateOnScroll key={o.id} animation="fade-right" delay={idx * 60}>
-                        <div style={{
-                          background: 'var(--color-bg-card)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-lg)',
-                          padding: '1.25rem',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.75rem',
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary)' }}>
-                                #{o.id.slice(0, 8).toUpperCase()}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                                {new Date(o.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                              </div>
-                            </div>
-                            <span style={{
-                              padding: '3px 10px',
-                              borderRadius: '50px',
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                              textTransform: 'uppercase',
-                              background: o.status === 'completed' ? 'rgba(74, 158, 106, 0.15)' : 'rgba(232, 160, 74, 0.15)',
-                              color: o.status === 'completed' ? '#4a9e6a' : '#e8a04a',
-                            }}>
-                              {o.status}
-                            </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+                    {/* Active Order Spotlight */}
+                    {activeOrder && (
+                      <AnimateOnScroll animation="fade-up">
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, fontFamily: 'var(--font-playfair)', margin: 0, color: 'var(--color-text)' }}>
+                              Pesanan Aktif Sedang Diproses
+                            </h3>
                           </div>
-
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
-                            <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Total Pesanan</div>
-                              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
-                                Rp {Number(o.total_amount).toLocaleString('id-ID')}
-                              </div>
-                            </div>
-                            <Link
-                              href={`/orders/${o.id}`}
-                              className="btn-outline"
-                              style={{ padding: '5px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              Lihat Struk <ChevronRight size={13} />
-                            </Link>
-                          </div>
+                          <LiveOrderTracker order={activeOrder} variant="full" />
                         </div>
                       </AnimateOnScroll>
-                    ))}
+                    )}
+
+                    {/* Past Orders List */}
+                    {pastOrders.length > 0 && (
+                      <div>
+                        {activeOrder && (
+                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            Riwayat Pesanan Terdahulu ({pastOrders.length})
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {pastOrders.map((o, idx) => {
+                            const conf = ORDER_STATUS_CONFIG[o.status] || ORDER_STATUS_CONFIG.completed
+                            return (
+                              <AnimateOnScroll key={o.id} animation="fade-right" delay={idx * 50}>
+                                <div style={{
+                                  background: 'var(--color-bg-card)',
+                                  border: '1px solid var(--color-border)',
+                                  borderRadius: 'var(--radius-lg)',
+                                  padding: '1.25rem',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '0.85rem',
+                                  transition: 'all 0.2s ease',
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-primary)' }}>
+                                        #{o.id.slice(0, 8).toUpperCase()}
+                                      </div>
+                                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                                        {new Date(o.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })} WIB
+                                      </div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '3px 9px',
+                                        borderRadius: '50px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 600,
+                                        background: 'var(--color-bg-secondary)',
+                                        color: 'var(--color-text-muted)',
+                                        fontFamily: 'var(--font-inter)',
+                                      }}>
+                                        {o.order_type === 'dine_in' ? (
+                                          <>
+                                            <UtensilsCrossed size={12} color="var(--color-primary)" />
+                                            Dine In {o.table_number ? `(${o.table_number})` : ''}
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Package size={12} color="var(--color-gold)" />
+                                            Take Away
+                                          </>
+                                        )}
+                                      </span>
+                                      <span style={{
+                                        padding: '3px 10px',
+                                        borderRadius: '50px',
+                                        fontSize: '0.74rem',
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        background: conf.bgColor,
+                                        color: conf.color,
+                                        fontFamily: 'var(--font-inter)',
+                                      }}>
+                                        {conf.label}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>Total Pembayaran</div>
+                                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-playfair)' }}>
+                                        Rp {Number(o.total_amount).toLocaleString('id-ID')}
+                                      </div>
+                                    </div>
+                                    <Link
+                                      href={`/orders/${o.id}`}
+                                      className="btn-outline"
+                                      style={{ padding: '6px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                      Lihat Struk &amp; Detail <ChevronRight size={14} />
+                                    </Link>
+                                  </div>
+                                </div>
+                              </AnimateOnScroll>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               )}

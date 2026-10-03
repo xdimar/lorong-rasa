@@ -56,7 +56,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             .from('profiles')
             .select('role')
             .eq('id', user.id)
-            .single()
+            .maybeSingle()
           if (profile?.role) {
             setRole(profile.role as 'admin' | 'cashier')
           }
