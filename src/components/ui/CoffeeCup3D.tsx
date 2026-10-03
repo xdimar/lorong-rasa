@@ -482,6 +482,16 @@ export function CoffeeCup3D({
     // Pre-compile shaders so first render frame doesn't stall
     renderer.compile(scene, camera)
 
+    // Observasi visibilitas agar loop animasi dijeda saat di luar layar viewport
+    let isVisible = true
+    let observer: IntersectionObserver | null = null
+    if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
+      observer = new IntersectionObserver(([entry]) => {
+        isVisible = entry.isIntersecting
+      }, { threshold: 0.05 })
+      observer.observe(container)
+    }
+
     // --- 5. Animation Render Loop ---
     const timer = new THREE.Timer()
 
@@ -489,7 +499,7 @@ export function CoffeeCup3D({
       const state = stateRef.current
       if (!state) return
 
-      if (document.hidden) {
+      if (document.hidden || !isVisible) {
         state.animId = requestAnimationFrame(animate)
         return
       }
@@ -587,6 +597,9 @@ export function CoffeeCup3D({
       }
       if (stateRef.current?.idleTimer) {
         window.clearTimeout(stateRef.current.idleTimer)
+      }
+      if (observer) {
+        observer.disconnect()
       }
       timer.dispose()
       renderer.dispose()
