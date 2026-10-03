@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/components/providers/ThemeProvider'
 import { CartProvider } from '@/components/providers/CartProvider'
 import { ToastProvider } from '@/components/providers/ToastProvider'
 import { CartDrawer } from '@/components/cart/CartDrawer'
-import { DevGreeting } from '@/components/layout/DevGreeting'
+import { ConsoleSilence } from '@/components/providers/ConsoleSilence'
 import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 
@@ -102,7 +102,7 @@ export default function RootLayout({
           <CartProvider>
             <FlyToCartProvider>
               <ToastProvider>
-                <DevGreeting />
+                <ConsoleSilence />
                 {children}
                 <CartDrawer />
                 <MobileBottomBar />
@@ -110,8 +110,12 @@ export default function RootLayout({
             </FlyToCartProvider>
           </CartProvider>
         </ThemeProvider>
-        <Analytics />
-        <SpeedInsights />
+        {process.env.NODE_ENV === 'production' && (
+          <>
+            <Analytics />
+            <SpeedInsights />
+          </>
+        )}
       </body>
     </html>
   )

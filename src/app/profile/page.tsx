@@ -242,7 +242,7 @@ export default function ProfilePage() {
         }
 
         // Real-time subscription to user's orders
-        const ordersChannel = supabase
+        ordersChannel = supabase
           .channel(`profile-orders-${user.id}`)
           .on(
             'postgres_changes',
@@ -263,17 +263,21 @@ export default function ProfilePage() {
             }
           )
           .subscribe()
-
-        return () => {
-          supabase.removeChannel(ordersChannel)
-        }
       } catch {
         // Continue
       } finally {
         setLoading(false)
       }
     }
+
+    let ordersChannel: ReturnType<typeof supabase.channel> | null = null
     fetchProfile()
+
+    return () => {
+      if (ordersChannel) {
+        supabase.removeChannel(ordersChannel)
+      }
+    }
   }, [])
 
   const performVoucherClaim = async (code: string, userId: string) => {

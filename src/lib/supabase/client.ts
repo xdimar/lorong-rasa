@@ -11,6 +11,13 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     ''
 
-  client = createBrowserClient(supabaseUrl, supabaseKey)
+  client = createBrowserClient(supabaseUrl, supabaseKey, {
+    realtime: {
+      log_level: 'error',
+    },
+    auth: {
+      debug: false,
+    },
+  })
   return client
 }
