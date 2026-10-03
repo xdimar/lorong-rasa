@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Mail, Lock, Eye, EyeOff, Coffee, ArrowLeft } from 'lucide-react'
@@ -14,6 +14,16 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [redirectPath, setRedirectPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const param = new URLSearchParams(window.location.search).get('redirect')
+      if (param && param.startsWith('/')) {
+        setRedirectPath(param)
+      }
+    }
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -29,7 +39,9 @@ export default function LoginPage() {
         : error.message)
       setLoading(false)
     } else {
-      if (data?.user) {
+      if (redirectPath) {
+        router.push(redirectPath)
+      } else if (data?.user) {
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
@@ -318,11 +330,14 @@ export default function LoginPage() {
             fontFamily: 'var(--font-inter)',
           }}>
             Belum punya akun?{' '}
-            <Link href="/register" style={{
-              color: 'var(--color-primary)',
-              fontWeight: 600,
-              textDecoration: 'none',
-            }}>
+            <Link
+              href={redirectPath ? `/register?redirect=${encodeURIComponent(redirectPath)}` : '/register'}
+              style={{
+                color: 'var(--color-primary)',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
               Daftar sekarang
             </Link>
           </p>

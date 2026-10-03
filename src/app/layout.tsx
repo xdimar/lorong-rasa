@@ -92,7 +92,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="id" suppressHydrationWarning>
+    <html lang="id" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className={`${playfair.variable} ${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
           <CartProvider>

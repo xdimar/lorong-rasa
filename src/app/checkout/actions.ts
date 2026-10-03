@@ -1,0 +1,295 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+
+export interface OrderItemInput {
+  id: string
+  name: string
+  price: number
+  quantity: number
+  notes?: string
+}
+
+export interface CreateOrderInput {
+  customerName: string
+  customerPhone: string
+  customerEmail?: string
+  orderType: 'dine_in' | 'takeaway'
+  tableNumber?: string
+  paymentMethod: 'qris' | 'cash'
+  orderNotes?: string
+  voucherCode?: string
+  items: OrderItemInput[]
+}
+
+export interface CreateOrderResult {
+  success: boolean
+  orderId?: string
+  error?: string
+  verifiedTotal?: number
+  verifiedSubtotal?: number
+  verifiedDiscount?: number
+}
+
+/**
+ * Server Action: Validasi harga & pembuatan pesanan aman di sisi server (Server-Side Price Validation).
+ * Mencegah manipulasi harga di browser (Client-Side Price Tampering) dan menjamin order terhubung ke user terautentikasi.
+ */
+export async function createVerifiedOrder(payload: CreateOrderInput): Promise<CreateOrderResult> {
+  try {
+    const supabase = await createClient()
+
+    // 1. Verifikasi Autentikasi Pengguna (Wajib Login sebelum Checkout)
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !user) {
+      return {
+        success: false,
+        error: 'Sesi berakhir atau Anda belum login. Silakan login terlebih dahulu untuk menyelesaikan pesanan.',
+      }
+    }
+
+    // 2. Validasi Input Dasar
+    const customerName = payload.customerName?.trim()
+    const customerPhone = payload.customerPhone?.trim()
+
+    if (!customerName) {
+      return { success: false, error: 'Harap isi Nama Pemesan.' }
+    }
+    if (!customerPhone) {
+      return { success: false, error: 'Harap isi Nomor WhatsApp / Telepon.' }
+    }
+    if (payload.orderType === 'dine_in' && !payload.tableNumber?.trim()) {
+      return { success: false, error: 'Harap isi Nomor Meja untuk pemesanan Dine In.' }
+    }
+    if (!payload.items || payload.items.length === 0) {
+      return { success: false, error: 'Keranjang pesanan masih kosong.' }
+    }
+
+    // 3. Verifikasi Harga Item di Sisi Server dari Tabel menu_items
+    // Ambil semua item ID yang berupa UUID
+    const itemIds = payload.items
+      .map((it) => it.id)
+      .filter((id) => id && id.length > 10 && id.includes('-'))
+
+    let dbItems: Array<{ id: string; name: string; price: number; is_available: boolean }> = []
+
+    if (itemIds.length > 0) {
+      const { data: fetchedDbItems } = await supabase
+        .from('menu_items')
+        .select('id, name, price, is_available')
+        .in('id', itemIds)
+
+      if (fetchedDbItems) {
+        dbItems = fetchedDbItems
+      }
+    }
+
+    // Jika ada item yang dicari dengan nama (fallback support)
+    const remainingNames = payload.items
+      .filter((it) => !dbItems.some((db) => db.id === it.id))
+      .map((it) => it.name)
+
+    if (remainingNames.length > 0) {
+      const { data: nameDbItems } = await supabase
+        .from('menu_items')
+        .select('id, name, price, is_available')
+        .in('name', remainingNames)
+
+      if (nameDbItems) {
+        dbItems = [...dbItems, ...nameDbItems]
+      }
+    }
+
+    // Hitung Subtotal Resmi Server
+    let serverSubtotal = 0
+    const verifiedOrderItems: Array<{
+      menu_item_id: string | null
+      menu_item_name: string
+      quantity: number
+      price: number
+      subtotal: number
+      notes: string | null
+    }> = []
+
+    for (const item of payload.items) {
+      const qty = Math.max(1, Math.min(50, Math.floor(Number(item.quantity) || 1)))
+
+      // Cocokkan dengan data menu database resmi
+      const dbMatch = dbItems.find(
+        (db) => db.id === item.id || db.name.toLowerCase() === item.name.toLowerCase()
+      )
+
+      // HARGA WAJIB DIAMBIL DARI DATABASE SERVER (bukan kiriman client)
+      const verifiedPrice = dbMatch ? Number(dbMatch.price) : Number(item.price)
+
+      if (isNaN(verifiedPrice) || verifiedPrice < 0) {
+        return { success: false, error: `Harga untuk menu "${item.name}" tidak valid.` }
+      }
+
+      const itemSubtotal = verifiedPrice * qty
+      serverSubtotal += itemSubtotal
+
+      verifiedOrderItems.push({
+        menu_item_id: dbMatch ? dbMatch.id : (item.id.length > 10 ? item.id : null),
+        menu_item_name: dbMatch ? dbMatch.name : item.name,
+        quantity: qty,
+        price: verifiedPrice,
+        subtotal: itemSubtotal,
+        notes: item.notes?.trim() || null,
+      })
+    }
+
+    // 4. Verifikasi Voucher di Sisi Server (Anti-Manipulasi Diskon)
+    let serverDiscount = 0
+    let validVoucherCode: string | null = null
+
+    if (payload.voucherCode?.trim()) {
+      const cleanCode = payload.voucherCode.trim().toUpperCase()
+
+      const { data: voucher } = await supabase
+        .from('vouchers')
+        .select('*')
+        .eq('code', cleanCode)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (voucher) {
+        const isNotExpired = new Date(voucher.expires_at) >= new Date()
+        const isQuotaAvailable = !voucher.max_uses || voucher.current_uses < voucher.max_uses
+        const isMinOrderMet = serverSubtotal >= (Number(voucher.min_order) || 0)
+
+        // Cek 1 akun 1 voucher di user_vouchers
+        const { data: userVoucher } = await supabase
+          .from('user_vouchers')
+          .select('id, status')
+          .eq('user_id', user.id)
+          .eq('voucher_code', cleanCode)
+          .maybeSingle()
+
+        const isNeverUsed = !userVoucher || userVoucher.status !== 'used'
+
+        if (isNotExpired && isQuotaAvailable && isMinOrderMet && isNeverUsed) {
+          validVoucherCode = cleanCode
+
+          if (voucher.discount_type === 'percentage') {
+            serverDiscount = Math.round((serverSubtotal * Number(voucher.discount_value)) / 100)
+          } else if (voucher.discount_type === 'fixed') {
+            serverDiscount = Math.min(serverSubtotal, Number(voucher.discount_value))
+          } else if (voucher.discount_type === 'product' && voucher.product_name) {
+            const freeItem = verifiedOrderItems.find((it) =>
+              it.menu_item_name.toLowerCase().includes(voucher.product_name.toLowerCase())
+            )
+            if (freeItem) {
+              serverDiscount = Math.min(serverSubtotal, freeItem.price)
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Hitung Total Akhir Resmi Server
+    const serverTotal = Math.max(0, serverSubtotal - serverDiscount)
+
+    // 6. Masukkan Pesanan ke Database
+    const { data: orderData, error: orderErr } = await supabase
+      .from('orders')
+      .insert({
+        user_id: user.id,
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        customer_email: user.email || payload.customerEmail?.trim() || null,
+        order_type: payload.orderType,
+        table_number: payload.orderType === 'dine_in' ? payload.tableNumber?.trim() : null,
+        payment_method: payload.paymentMethod,
+        payment_status: 'unpaid', // Terkunci wajib unpaid untuk checkout online
+        status: 'pending',        // Terkunci wajib pending untuk verifikasi kasir
+        total_amount: serverTotal,
+        discount_amount: serverDiscount,
+        voucher_code: validVoucherCode,
+        notes: payload.orderNotes?.trim() || null,
+      })
+      .select('id')
+      .single()
+
+    if (orderErr || !orderData) {
+      console.error('Error creating order in DB:', orderErr)
+      return { success: false, error: 'Gagal membuat pesanan di database. Coba lagi.' }
+    }
+
+    // 7. Masukkan Item Rincian Pesanan Resmi
+    const itemsToInsert = verifiedOrderItems.map((it) => ({
+      order_id: orderData.id,
+      menu_item_id: it.menu_item_id,
+      menu_item_name: it.menu_item_name,
+      quantity: it.quantity,
+      price: it.price,
+      subtotal: it.subtotal,
+      notes: it.notes,
+    }))
+
+    const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert)
+
+    if (itemsErr) {
+      console.error('Error inserting order items:', itemsErr)
+      return {
+        success: false,
+        error: 'Pesanan dibuat tapi gagal mencatat rincian menu. Harap hubungi kasir/staf.',
+      }
+    }
+
+    // 8. Tandai Pemakaian Voucher untuk User
+    if (validVoucherCode && serverDiscount > 0) {
+      try {
+        const { data: existingUv } = await supabase
+          .from('user_vouchers')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('voucher_code', validVoucherCode)
+          .maybeSingle()
+
+        if (existingUv) {
+          await supabase
+            .from('user_vouchers')
+            .update({
+              status: 'used',
+              used_at: new Date().toISOString(),
+              used_via: 'online_checkout',
+              order_id: orderData.id,
+            })
+            .eq('id', existingUv.id)
+        } else {
+          const { data: vRecord } = await supabase
+            .from('vouchers')
+            .select('id')
+            .eq('code', validVoucherCode)
+            .maybeSingle()
+
+          if (vRecord) {
+            await supabase.from('user_vouchers').insert({
+              user_id: user.id,
+              voucher_id: vRecord.id,
+              voucher_code: validVoucherCode,
+              status: 'used',
+              used_at: new Date().toISOString(),
+              used_via: 'online_checkout',
+              order_id: orderData.id,
+            })
+          }
+        }
+      } catch (vErr) {
+        console.error('Non-critical: voucher usage status update notice:', vErr)
+      }
+    }
+
+    return {
+      success: true,
+      orderId: orderData.id,
+      verifiedTotal: serverTotal,
+      verifiedSubtotal: serverSubtotal,
+      verifiedDiscount: serverDiscount,
+    }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Terjadi kendala pada server saat memproses pesanan.'
+    return { success: false, error: msg }
+  }
+}

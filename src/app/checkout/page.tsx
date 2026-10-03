@@ -17,7 +17,9 @@ import {
   Loader2,
   Trash2,
   Sparkles,
+  Lock,
 } from 'lucide-react'
+import { createVerifiedOrder } from './actions'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
 import { useToast } from '@/components/providers/ToastProvider'
@@ -60,15 +62,18 @@ export default function CheckoutPage() {
           setCustomerEmail(user.email || '')
           const { data: profile } = await supabase
             .from('profiles')
-            .select('full_name')
+            .select('full_name, phone')
             .eq('id', user.id)
             .single()
           if (profile?.full_name) {
             setCustomerName(profile.full_name)
           }
+          if (profile?.phone) {
+            setCustomerPhone(profile.phone)
+          }
         }
       } catch {
-        // Continue as guest
+        // Continue
       } finally {
         setAuthChecked(true)
       }
@@ -181,99 +186,34 @@ export default function CheckoutPage() {
     setSubmitting(true)
 
     try {
-      // 1. Insert Order
-      const { data: orderData, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          user_id: userId,
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim(),
-          customer_email: customerEmail.trim() || null,
-          order_type: orderType,
-          table_number: orderType === 'dine_in' ? tableNumber.trim() : null,
-          payment_method: paymentMethod,
-          payment_status: 'unpaid',
-          status: 'pending',
-          total_amount: total,
-          discount_amount: discount,
-          voucher_code: voucher && discount > 0 ? voucher.code : null,
-          notes: orderNotes.trim() || null,
-        })
-        .select()
-        .single()
+      const res = await createVerifiedOrder({
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail.trim() || undefined,
+        orderType,
+        tableNumber: orderType === 'dine_in' ? tableNumber.trim() : undefined,
+        paymentMethod,
+        orderNotes: orderNotes.trim() || undefined,
+        voucherCode: voucher && discount > 0 ? voucher.code : undefined,
+        items: items.map((it) => ({
+          id: it.id,
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity,
+          notes: it.notes,
+        })),
+      })
 
-      if (orderErr || !orderData) {
-        throw new Error(orderErr?.message || 'Gagal membuat pesanan.')
+      if (!res.success || !res.orderId) {
+        setErrorMsg(res.error || 'Gagal memproses pesanan.')
+        setSubmitting(false)
+        return
       }
 
-      // 2. Insert Order Items
-      const orderItems = items.map((item) => ({
-        order_id: orderData.id,
-        menu_item_id: item.id.length > 10 ? item.id : null,
-        menu_item_name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        subtotal: item.price * item.quantity,
-        notes: item.notes || null,
-      }))
-
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .insert(orderItems)
-
-      if (itemsErr) {
-        console.error('Error inserting order items:', itemsErr)
-        throw new Error('Gagal menyimpan detail menu pesanan. Harap hubungi staf atau coba lagi.')
-      }
-
-      // 3. If voucher was applied and yielded a discount, mark user_vouchers as used
-      if (voucher && discount > 0 && userId) {
-        try {
-          const { data: existingUv } = await supabase
-            .from('user_vouchers')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('voucher_code', voucher.code)
-            .maybeSingle()
-
-          if (existingUv) {
-            await supabase
-              .from('user_vouchers')
-              .update({
-                status: 'used',
-                used_at: new Date().toISOString(),
-                used_via: 'online_checkout',
-                order_id: orderData.id,
-              })
-              .eq('id', existingUv.id)
-          } else {
-            const { data: vRecord } = await supabase
-              .from('vouchers')
-              .select('id')
-              .eq('code', voucher.code)
-              .maybeSingle()
-
-            if (vRecord) {
-              await supabase.from('user_vouchers').insert({
-                user_id: userId,
-                voucher_id: vRecord.id,
-                voucher_code: voucher.code,
-                status: 'used',
-                used_at: new Date().toISOString(),
-                used_via: 'online_checkout',
-                order_id: orderData.id,
-              })
-            }
-          }
-        } catch (err) {
-          console.error('Error updating voucher usage:', err)
-        }
-      }
-
-      // 4. Clear cart and redirect to order receipt
+      // Success: Clear cart and redirect to order tracking receipt
       clearCart()
-      showToast('Pesanan berhasil dibuat!', 'success')
-      router.push(`/orders/${orderData.id}`)
+      showToast('Pesanan berhasil dibuat & diverifikasi!', 'success')
+      router.push(`/orders/${res.orderId}`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Terjadi kendala saat memproses pesanan. Silakan coba lagi.'
       setErrorMsg(message)
@@ -298,6 +238,132 @@ export default function CheckoutPage() {
               <ShoppingBag size={18} />
               Jelajahi Menu
             </Link>
+          </div>
+        </main>
+        <Footer />
+      </>
+    )
+  }
+
+  // Wajib Login sebelum Checkout (Proteksi Akun & Pelacakan Struk Pesanan)
+  if (authChecked && !userId) {
+    return (
+      <>
+        <Navbar />
+        <main style={{ minHeight: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', padding: '6rem 1.5rem 4rem' }}>
+          <div style={{
+            textAlign: 'center',
+            maxWidth: '500px',
+            width: '100%',
+            background: 'var(--color-bg-card)',
+            padding: 'clamp(2rem, 5vw, 3rem) 2rem',
+            borderRadius: 'var(--radius-xl)',
+            border: '1.5px solid var(--color-border)',
+            boxShadow: 'var(--shadow-lg)',
+            position: 'relative',
+          }}>
+            <div style={{
+              width: '68px',
+              height: '68px',
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, var(--color-primary-glow), var(--color-bg-secondary))',
+              border: '1.5px solid var(--color-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 1.5rem',
+              color: 'var(--color-primary)',
+              boxShadow: '0 8px 24px var(--color-primary-glow)',
+            }}>
+              <Lock size={32} />
+            </div>
+
+            <span style={{
+              fontSize: '0.78rem',
+              color: 'var(--color-primary)',
+              fontFamily: 'var(--font-inter)',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}>
+              — Akun Member Lorong Rasa —
+            </span>
+
+            <h1 style={{
+              fontSize: 'clamp(1.4rem, 3.5vw, 1.85rem)',
+              fontFamily: 'var(--font-playfair)',
+              margin: '0.5rem 0 0.85rem',
+              color: 'var(--color-text)',
+            }}>
+              Masuk untuk Menyelesaikan Pesanan
+            </h1>
+
+            <p style={{
+              color: 'var(--color-text-muted)',
+              fontFamily: 'var(--font-inter)',
+              fontSize: '0.9rem',
+              marginBottom: '1.75rem',
+              lineHeight: 1.6,
+            }}>
+              Demi keamanan transaksi, pelacakan status pesanan secara real-time, serta perolehan poin loyalitas &amp; voucher, silakan masuk ke akun Anda terlebih dahulu.
+            </p>
+
+            <div style={{
+              background: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              padding: '1rem',
+              marginBottom: '2rem',
+              textAlign: 'left',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+              fontSize: '0.85rem',
+              color: 'var(--color-text-secondary)',
+              fontFamily: 'var(--font-inter)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} color="var(--color-primary)" />
+                <span>Lacak status racikan barista secara real-time</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} color="var(--color-primary)" />
+                <span>Otomatis kumpulkan Poin Loyalitas &amp; Diskon Member</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 size={16} color="var(--color-primary)" />
+                <span>Struk &amp; riwayat belanja tersimpan aman di akun Anda</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <Link
+                href="/login?redirect=/checkout"
+                className="btn-primary"
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  padding: '0.9rem',
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                }}
+              >
+                Masuk ke Akun
+              </Link>
+              <Link
+                href="/register?redirect=/checkout"
+                className="btn-outline"
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  padding: '0.85rem',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                }}
+              >
+                Belum Punya Akun? Daftar Sekarang
+              </Link>
+            </div>
           </div>
         </main>
         <Footer />

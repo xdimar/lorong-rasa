@@ -76,21 +76,21 @@ export function ContactSection() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: '1rem',
-                  background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.12) 0%, var(--color-bg-card) 100%)',
-                  border: '1.5px solid #25D366',
+                  background: 'linear-gradient(135deg, var(--color-primary-glow) 0%, var(--color-bg-card) 100%)',
+                  border: '1.5px solid var(--color-primary)',
                   borderRadius: 'var(--radius-md)',
                   padding: '1.25rem',
                   textDecoration: 'none',
                   transition: 'all 0.25s ease',
-                  boxShadow: '0 4px 18px rgba(37, 211, 102, 0.15)',
+                  boxShadow: '0 4px 18px var(--color-primary-glow)',
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.transform = 'translateY(-2px)'
-                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(37, 211, 102, 0.28)'
+                  e.currentTarget.style.boxShadow = '0 8px 24px var(--color-primary-glow)'
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = '0 4px 18px rgba(37, 211, 102, 0.15)'
+                  e.currentTarget.style.boxShadow = '0 4px 18px var(--color-primary-glow)'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
@@ -99,12 +99,12 @@ export function ContactSection() {
                       width: '46px',
                       height: '46px',
                       borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                      background: 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
-                      boxShadow: '0 4px 12px rgba(37, 211, 102, 0.35)',
+                      boxShadow: '0 4px 12px var(--color-primary-glow)',
                       color: '#ffffff',
                     }}
                   >
@@ -114,10 +114,10 @@ export function ContactSection() {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#128C7E', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         WhatsApp Owner Utama
                       </span>
-                      <span style={{ background: '#25D366', width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block' }} />
+                      <span style={{ background: 'var(--color-primary)', width: '7px', height: '7px', borderRadius: '50%', display: 'inline-block' }} />
                     </div>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-text)', lineHeight: 1.2 }}>
                       {ownerName} — {ownerPhone}
@@ -130,7 +130,7 @@ export function ContactSection() {
 
                 <div
                   style={{
-                    background: '#25D366',
+                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
                     color: '#ffffff',
                     padding: '8px 14px',
                     borderRadius: '50px',
@@ -138,7 +138,7 @@ export function ContactSection() {
                     fontWeight: 700,
                     whiteSpace: 'nowrap',
                     flexShrink: 0,
-                    boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)',
+                    boxShadow: '0 2px 8px var(--color-primary-glow)',
                   }}
                 >
                   Chat ➔
@@ -239,11 +239,11 @@ export function ContactSection() {
                     justifyContent: 'center',
                     gap: '8px',
                     background: 'var(--color-bg-card)',
-                    border: '1px solid #25D366',
+                    border: '1px solid var(--color-primary)',
                     borderRadius: 'var(--radius-md)',
                     padding: '0.75rem 1rem',
                     textDecoration: 'none',
-                    color: '#128C7E',
+                    color: 'var(--color-primary)',
                     fontSize: '0.85rem',
                     fontWeight: 700,
                     fontFamily: 'var(--font-inter)',
@@ -251,7 +251,7 @@ export function ContactSection() {
                     flex: 1,
                   }}
                 >
-                  <MessageCircle size={16} color="#25D366" />
+                  <MessageCircle size={16} />
                   WhatsApp {ownerName}
                 </a>
 
@@ -420,7 +420,7 @@ export function ContactSection() {
                     width: '100%',
                     padding: '0.85rem',
                     borderRadius: 'var(--radius-md)',
-                    background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
+                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
                     color: '#ffffff',
                     border: 'none',
                     fontSize: '0.95rem',
@@ -430,7 +430,7 @@ export function ContactSection() {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px',
-                    boxShadow: '0 4px 15px rgba(37, 211, 102, 0.35)',
+                    boxShadow: '0 4px 15px var(--color-primary-glow)',
                     transition: 'all 0.2s ease',
                   }}
                 >
