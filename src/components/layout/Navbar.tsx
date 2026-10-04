@@ -256,6 +256,7 @@ export function Navbar() {
           flexDirection: 'column',
           gap: '0.85rem',
           boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+          animation: 'slideInDown 0.25s cubic-bezier(0.22, 1, 0.36, 1)',
         }}>
           {navLinks.map((link) => (
             <Link

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { Coffee, ShoppingCart, Star, Sparkles, ArrowRight, Eye } from 'lucide-react'
+import { Coffee, ShoppingCart, Star, Sparkles, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
@@ -23,6 +23,8 @@ export function MenuSection() {
   const [loading, setLoading] = useState(true)
   const [selectedReviewItem, setSelectedReviewItem] = useState<MenuItem | null>(null)
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [animatingCards, setAnimatingCards] = useState(false)
+  const categoryScrollRef = useRef<HTMLDivElement>(null)
 
   const { addItem } = useCart()
   const { flyToCart } = useFlyToCart()
@@ -44,6 +46,21 @@ export function MenuSection() {
   const handleOpenReviews = (item: MenuItem) => {
     setSelectedReviewItem(item)
     setReviewModalOpen(true)
+  }
+
+  const handleCategoryChange = (cat: string) => {
+    if (cat === activeCategory) return
+    setAnimatingCards(true)
+    setTimeout(() => {
+      setActiveCategory(cat)
+      setAnimatingCards(false)
+    }, 220)
+  }
+
+  const scrollCategories = (dir: 'left' | 'right') => {
+    if (categoryScrollRef.current) {
+      categoryScrollRef.current.scrollBy({ left: dir === 'right' ? 160 : -160, behavior: 'smooth' })
+    }
   }
 
   useEffect(() => {
@@ -127,11 +144,11 @@ export function MenuSection() {
   )
 
   return (
-    <section id="menu" className="section-padding" style={{ background: 'var(--color-bg-secondary)', position: 'relative' }}>
+    <section id="menu" className="section-padding menu-section" style={{ background: 'var(--color-bg-secondary)', position: 'relative' }}>
       <div className="container-custom">
         {/* Header */}
         <AnimateOnScroll animation="fade-up">
-          <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
             <span style={{
               fontSize: '0.85rem',
               color: 'var(--color-primary)',
@@ -146,9 +163,9 @@ export function MenuSection() {
               <Sparkles size={14} /> Menu Pilihan Lorong Rasa
             </span>
             <h2 style={{
-              fontSize: 'clamp(2rem, 4vw, 3rem)',
+              fontSize: 'clamp(1.75rem, 4vw, 3rem)',
               marginTop: '0.75rem',
-              marginBottom: '1rem',
+              marginBottom: '0.875rem',
             }}>
               Racikan Rasa{' '}
               <span style={{
@@ -163,76 +180,69 @@ export function MenuSection() {
             </h2>
             <p style={{
               color: 'var(--color-text-muted)',
-              maxWidth: '560px',
+              maxWidth: '520px',
               margin: '0 auto',
               fontFamily: 'var(--font-inter)',
-              lineHeight: 1.8,
-              fontSize: '0.95rem',
+              lineHeight: 1.7,
+              fontSize: '0.9rem',
             }}>
               Dari kopi lokal single origin, seblak prasmanan gurih pedas, hingga kudapan nikmat. Seluruh hidangan dimasak segar dan siap dipesan.
             </p>
           </div>
         </AnimateOnScroll>
 
-        {/* Category Pills Filter */}
+        {/* Category Pills Filter — horizontal scroll di mobile */}
         <AnimateOnScroll animation="fade-up" delay={80}>
-          <div style={{
-            display: 'flex',
-            gap: '0.5rem',
-            flexWrap: 'wrap',
-            marginBottom: '2.5rem',
-            justifyContent: 'center',
-          }}>
-            {categories.map((cat) => {
-              const isActive = activeCategory === cat
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  style={{
-                    padding: '0.45rem 1.25rem',
-                    borderRadius: '50px',
-                    border: `1.5px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                    background: isActive
-                      ? 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))'
-                      : 'var(--color-bg-card)',
-                    color: isActive ? '#ffffff' : 'var(--color-text-muted)',
-                    cursor: 'pointer',
-                    fontSize: '0.82rem',
-                    fontWeight: isActive ? 600 : 500,
-                    fontFamily: 'var(--font-inter)',
-                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                    boxShadow: isActive ? '0 4px 15px var(--color-primary-glow)' : 'none',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.borderColor = 'var(--color-primary)'
-                      e.currentTarget.style.color = 'var(--color-primary)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.borderColor = 'var(--color-border)'
-                      e.currentTarget.style.color = 'var(--color-text-muted)'
-                    }
-                  }}
-                >
-                  {cat}
-                </button>
-              )
-            })}
+          <div className="menu-category-wrapper">
+            {/* Scroll arrow kiri (hanya tampil jika ada banyak kategori) */}
+            {categories.length > 5 && (
+              <button
+                className="menu-cat-arrow menu-cat-arrow-left"
+                onClick={() => scrollCategories('left')}
+                aria-label="Scroll kategori ke kiri"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            )}
+
+            <div
+              ref={categoryScrollRef}
+              className="menu-category-scroll"
+            >
+              {categories.map((cat) => {
+                const isActive = activeCategory === cat
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => handleCategoryChange(cat)}
+                    className={`menu-cat-pill${isActive ? ' active' : ''}`}
+                    style={{
+                      '--cat-active-color': 'var(--color-primary)',
+                    } as React.CSSProperties}
+                  >
+                    {cat}
+                  </button>
+                )
+              })}
+            </div>
+
+            {categories.length > 5 && (
+              <button
+                className="menu-cat-arrow menu-cat-arrow-right"
+                onClick={() => scrollCategories('right')}
+                aria-label="Scroll kategori ke kanan"
+              >
+                <ChevronRight size={16} />
+              </button>
+            )}
           </div>
         </AnimateOnScroll>
 
         {/* Menu Grid Content */}
         {loading ? (
           /* Loading Skeleton */
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
-            gap: '1.5rem',
-          }}>
-            {Array.from({ length: 8 }).map((_, i) => (
+          <div className="menu-grid">
+            {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
                 style={{
@@ -243,11 +253,11 @@ export function MenuSection() {
                   animation: 'pulse 1.5s ease-in-out infinite',
                 }}
               >
-                <div style={{ height: '190px', background: 'var(--color-bg)' }} />
-                <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ height: '16px', background: 'var(--color-bg)', borderRadius: '6px', width: '40%' }} />
-                  <div style={{ height: '20px', background: 'var(--color-bg)', borderRadius: '6px', width: '75%' }} />
-                  <div style={{ height: '14px', background: 'var(--color-bg)', borderRadius: '6px', width: '90%' }} />
+                <div style={{ height: '160px', background: 'var(--color-bg)' }} />
+                <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div style={{ height: '14px', background: 'var(--color-bg)', borderRadius: '6px', width: '40%' }} />
+                  <div style={{ height: '18px', background: 'var(--color-bg)', borderRadius: '6px', width: '75%' }} />
+                  <div style={{ height: '12px', background: 'var(--color-bg)', borderRadius: '6px', width: '90%' }} />
                   <div style={{ height: '32px', background: 'var(--color-bg)', borderRadius: '6px', width: '100%', marginTop: '0.5rem' }} />
                 </div>
               </div>
@@ -261,67 +271,31 @@ export function MenuSection() {
             </p>
           </div>
         ) : (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
-            gap: '1.5rem',
-          }}>
+          <div
+            className="menu-grid"
+            style={{
+              opacity: animatingCards ? 0 : 1,
+              transform: animatingCards ? 'translateY(12px)' : 'translateY(0)',
+              transition: 'opacity 0.22s ease, transform 0.22s ease',
+            }}
+          >
             {displayedItems.map((item, index) => {
               const color = categoryColors[item.category] || 'var(--color-primary)'
               return (
-                <AnimateOnScroll key={item.id} animation="fade-up" delay={index * 60}>
+                <AnimateOnScroll key={item.id} animation="fade-up" delay={index * 50} duration={550}>
                   <div
-                    style={{
-                      background: 'var(--color-bg-card)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius-lg)',
-                      overflow: 'hidden',
-                      transition: 'all 0.32s cubic-bezier(0.4, 0, 0.2, 1)',
-                      cursor: 'pointer',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      boxShadow: 'var(--shadow-sm)',
-                    }}
+                    className="menu-card"
                     onClick={() => handleOpenReviews(item)}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-6px)'
-                      e.currentTarget.style.boxShadow = 'var(--shadow-lg)'
-                      e.currentTarget.style.borderColor = color
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)'
-                      e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
-                      e.currentTarget.style.borderColor = 'var(--color-border)'
-                    }}
+                    style={{ '--card-accent': color } as React.CSSProperties}
                   >
                     {/* Media Container */}
-                    <div style={{
-                      height: '190px',
-                      backgroundColor: '#171412',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
+                    <div className="menu-card-img-wrap">
                       {item.image_url ? (
                         <img
                           src={item.image_url}
                           alt={item.name}
                           loading="lazy"
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            transition: 'transform 0.4s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'scale(1.06)'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'scale(1)'
-                          }}
+                          className="menu-card-img"
                         />
                       ) : (
                         <div style={{
@@ -332,49 +306,18 @@ export function MenuSection() {
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}>
-                          <Coffee size={44} style={{ color, opacity: 0.5 }} />
+                          <Coffee size={36} style={{ color, opacity: 0.5 }} />
                         </div>
                       )}
 
                       {/* Category Badge */}
-                      <span style={{
-                        position: 'absolute',
-                        top: '12px',
-                        left: '12px',
-                        background: color,
-                        color: 'white',
-                        borderRadius: '6px',
-                        padding: '3px 10px',
-                        fontSize: '0.72rem',
-                        fontWeight: 600,
-                        fontFamily: 'var(--font-inter)',
-                        letterSpacing: '0.04em',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                      }}>
+                      <span className="menu-card-category-badge" style={{ background: color }}>
                         {item.category}
                       </span>
 
-                      {/* Rating Badge / Modal Trigger */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '12px',
-                          right: '12px',
-                          background: 'rgba(0,0,0,0.65)',
-                          backdropFilter: 'blur(8px)',
-                          borderRadius: '50px',
-                          padding: '3px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          color: '#f5a623',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          fontFamily: 'var(--font-inter)',
-                          border: '1px solid rgba(255,255,255,0.12)',
-                        }}
-                      >
-                        <Star size={11} fill="#f5a623" color="#f5a623" />
+                      {/* Rating Badge */}
+                      <div className="menu-card-rating-badge">
+                        <Star size={10} fill="#f5a623" color="#f5a623" />
                         <span style={{ color: '#fff' }}>
                           {item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '4.9'}
                         </span>
@@ -382,81 +325,27 @@ export function MenuSection() {
                     </div>
 
                     {/* Body */}
-                    <div style={{
-                      padding: '1.25rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      flex: 1,
-                    }}>
-                      <h3 style={{
-                        fontSize: '1.15rem',
-                        marginBottom: '0.45rem',
-                        color: 'var(--color-text)',
-                        fontWeight: 700,
-                        fontFamily: 'var(--font-playfair)',
-                      }}>
-                        {item.name}
-                      </h3>
+                    <div className="menu-card-body">
+                      <h3 className="menu-card-title">{item.name}</h3>
 
-                      <p style={{
-                        fontSize: '0.85rem',
-                        color: 'var(--color-text-muted)',
-                        lineHeight: 1.6,
-                        marginBottom: '1.25rem',
-                        fontFamily: 'var(--font-inter)',
-                        flex: 1,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}>
+                      <p className="menu-card-desc">
                         {item.description}
                       </p>
 
                       {/* Footer: Harga & Tombol Pesan */}
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginTop: 'auto',
-                        paddingTop: '0.75rem',
-                        borderTop: '1px solid var(--color-border)',
-                      }}>
+                      <div className="menu-card-footer">
                         <div>
-                          <span style={{
-                            display: 'block',
-                            fontSize: '0.7rem',
-                            color: 'var(--color-text-muted)',
-                            fontFamily: 'var(--font-inter)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                          }}>
-                            Harga
-                          </span>
-                          <span style={{
-                            fontSize: '1.15rem',
-                            fontWeight: 700,
-                            color: 'var(--color-primary)',
-                            fontFamily: 'var(--font-playfair)',
-                          }}>
+                          <span className="menu-card-price-label">Harga</span>
+                          <span className="menu-card-price">
                             Rp {item.price.toLocaleString('id-ID')}
                           </span>
                         </div>
 
                         <button
                           onClick={(e) => handleOrder(item, e)}
-                          className="btn-primary"
-                          style={{
-                            padding: '0.45rem 1rem',
-                            fontSize: '0.82rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer',
-                            borderRadius: '8px',
-                          }}
+                          className="btn-primary menu-card-btn"
                         >
-                          <ShoppingCart size={13} />
+                          <ShoppingCart size={12} />
                           Pesan
                         </button>
                       </div>
@@ -470,20 +359,20 @@ export function MenuSection() {
 
         {/* Navigasi Lihat Seluruh Menu */}
         <AnimateOnScroll animation="fade-up" delay={150}>
-          <div style={{ textAlign: 'center', marginTop: '3.5rem' }}>
+          <div style={{ textAlign: 'center', marginTop: '3rem' }}>
             <Link
               href="/menu"
               className="btn-outline"
               style={{
-                fontSize: '0.95rem',
-                padding: '0.85rem 2.25rem',
+                fontSize: '0.9rem',
+                padding: '0.8rem 2rem',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '8px',
                 borderRadius: '50px',
               }}
             >
-              Jelajahi Semua Menu & Kategori Lengkap ({items.length}+ Menu) <ArrowRight size={16} />
+              Jelajahi Semua Menu ({items.length}+ Menu) <ArrowRight size={16} />
             </Link>
           </div>
         </AnimateOnScroll>

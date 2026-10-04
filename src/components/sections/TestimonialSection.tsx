@@ -40,7 +40,7 @@ export function TestimonialSection() {
       <div className="container-custom">
         {/* Header */}
         <AnimateOnScroll animation="fade-up">
-          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: 'clamp(2rem, 5vw, 4rem)' }}>
             <span style={{
               fontSize: '0.85rem',
               color: 'var(--color-primary)',
@@ -71,8 +71,8 @@ export function TestimonialSection() {
         {/* Testimonials */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-          gap: '1.5rem',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))',
+          gap: '1.25rem',
         }}>
           {testimonials.map((t, i) => (
             <AnimateOnScroll key={t.name} animation="fade-up" delay={i * 90}>

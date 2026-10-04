@@ -307,6 +307,27 @@
   50% { box-shadow: 0 0 40px var(--color-primary-glow), 0 0 80px var(--color-primary-glow); }
 }
 
+/* --- Missing critical keyframes --- */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInDown {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
 .animate-fade-in-up {
   animation: fadeInUp 0.7s ease forwards;
 }
@@ -317,6 +338,10 @@
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 
 .delay-100 { animation-delay: 0.1s; }
@@ -1140,15 +1165,7 @@
    HERO FLOATING SHOWCASE & MARQUEE KEYFRAMES
    ======================================================== */
 
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
+/* float already defined above — only floatReverse is new */
 @keyframes floatReverse {
   0%, 100% {
     transform: translateY(0px);
@@ -1345,4 +1362,378 @@
   animation: stampSlam 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
+/* ====================================================
+   MENU SECTION — MOBILE RESPONSIVE & ANIMATIONS
+   ==================================================== */
+
+/* ---- Category Scroll Wrapper ---- */
+.menu-category-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.menu-category-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 2px;
+  flex: 1;
+  /* Smooth scroll fade edges */
+  mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+}
+.menu-category-scroll::-webkit-scrollbar { display: none; }
+
+.menu-cat-arrow {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+.menu-cat-arrow:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-bg-secondary);
+}
+
+.menu-cat-pill {
+  flex-shrink: 0;
+  padding: 0.4rem 1.1rem;
+  border-radius: 50px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: var(--font-inter);
+  white-space: nowrap;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.menu-cat-pill:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-1px);
+}
+.menu-cat-pill.active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4px 15px var(--color-primary-glow);
+  transform: translateY(-1px);
+}
+
+/* ---- Menu Grid ---- */
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 1.25rem;
+}
+
+/* ---- Menu Card ---- */
+.menu-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.3s ease;
+}
+.menu-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--card-accent, var(--color-primary));
+}
+.menu-card:active {
+  transform: translateY(-2px) scale(0.99);
+}
+
+.menu-card-img-wrap {
+  height: 180px;
+  background-color: #171412;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.menu-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+.menu-card:hover .menu-card-img {
+  transform: scale(1.06);
+}
+
+.menu-card-category-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: white;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-inter);
+  letter-spacing: 0.04em;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.menu-card-rating-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 50px;
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #f5a623;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-inter);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.menu-card-body {
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0;
+}
+
+.menu-card-title {
+  font-size: 1.05rem;
+  margin-bottom: 0.4rem;
+  color: var(--color-text);
+  font-weight: 700;
+  font-family: var(--font-playfair);
+  line-height: 1.3;
+}
+
+.menu-card-desc {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  margin-bottom: 1rem;
+  font-family: var(--font-inter);
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.menu-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.menu-card-price-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-inter);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.menu-card-price {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  font-family: var(--font-playfair);
+}
+
+.menu-card-btn {
+  padding: 0.42rem 0.9rem !important;
+  font-size: 0.8rem !important;
+  border-radius: 8px !important;
+  gap: 5px !important;
+}
+
+/* ---- Mobile: 2 kolom compact ---- */
+@media (max-width: 640px) {
+  .menu-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .menu-card-img-wrap {
+    height: 130px;
+  }
+
+  .menu-card-body {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .menu-card-title {
+    font-size: 0.88rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .menu-card-desc {
+    font-size: 0.75rem;
+    -webkit-line-clamp: 2;
+    margin-bottom: 0.75rem;
+  }
+
+  .menu-card-price {
+    font-size: 0.9rem;
+  }
+
+  .menu-card-price-label {
+    font-size: 0.62rem;
+  }
+
+  .menu-card-btn {
+    padding: 0.35rem 0.65rem !important;
+    font-size: 0.72rem !important;
+    border-radius: 7px !important;
+  }
+
+  .menu-cat-pill {
+    padding: 0.35rem 0.9rem;
+    font-size: 0.76rem;
+  }
+
+  .menu-category-wrapper {
+    margin-bottom: 1.25rem;
+  }
+
+  /* Hide scroll arrows on mobile — swipe naturally */
+  .menu-cat-arrow {
+    display: none;
+  }
+
+  .menu-category-scroll {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+}
+
+/* ---- Tablet: 3 kolom ---- */
+@media (min-width: 641px) and (max-width: 1023px) {
+  .menu-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+
+  .menu-card-img-wrap {
+    height: 155px;
+  }
+}
+
+/* ---- Section enter animation (untuk page load) ---- */
+.menu-section {
+  animation: sectionReveal 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes sectionReveal {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ====================================================
+   ABOUT SECTION — RESPONSIVE (replaces removed style jsx)
+   ==================================================== */
+@media (max-width: 640px) {
+  .about-main-grid {
+    gap: 1.5rem !important;
+  }
+  .about-values-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ====================================================
+   CONTACT SECTION — RESPONSIVE GRID
+   ==================================================== */
+@media (max-width: 640px) {
+  .contact-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ====================================================
+   MENU PAGE — RESPONSIVE CATEGORY PILLS
+   ==================================================== */
+.menu-page-category-scroll {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 2px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .menu-page-category-scroll {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+}
+
+.menu-page-category-scroll::-webkit-scrollbar { display: none; }
+
+/* ====================================================
+   GLOBAL MISC FIXES
+   ==================================================== */
+
+/* Prevent horizontal scroll overflow globally */
+section {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Focus ring accessibility */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
 

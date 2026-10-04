@@ -156,16 +156,6 @@ export function AboutSection() {
         </div>
       </div>
 
-      <style jsx>{`
-        @media (max-width: 640px) {
-          .about-main-grid {
-            gap: 2rem !important;
-          }
-          .about-values-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
     </section>
   )
 }

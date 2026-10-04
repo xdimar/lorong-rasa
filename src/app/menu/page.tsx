@@ -1,4 +1,8 @@
 'use client'
+// NOTE: metadata tidak bisa di-export dari 'use client' component.
+// SEO untuk halaman menu ditangani oleh layout.tsx (template: '%s | Lorong Rasa')
+// dan tidak memerlukan export metadata terpisah saat menggunakan 'use client'.
+// Jika butuh metadata spesifik, buat wrapper Server Component.
 
 import { useEffect, useState } from 'react'
 import { Search, Coffee, ShoppingCart, Star } from 'lucide-react'
@@ -182,44 +186,15 @@ export default function MenuPage() {
         <div className="container-custom" style={{ padding: 'clamp(1.5rem, 4vw, 3rem) 1rem' }}>
           {/* Category Filter */}
           <AnimateOnScroll animation="fade-up" delay={50}>
-            <div style={{
-              display: 'flex',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
-              marginBottom: '2.5rem',
-              justifyContent: 'center',
-            }}>
+            <div
+              className="menu-page-category-scroll"
+              style={{ marginBottom: '2rem' }}
+            >
               {categories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  style={{
-                    padding: '0.45rem 1.15rem',
-                    borderRadius: '50px',
-                    border: `2px solid ${activeCategory === cat ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                    background: activeCategory === cat
-                      ? 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))'
-                      : 'transparent',
-                    color: activeCategory === cat ? 'white' : 'var(--color-text-muted)',
-                    cursor: 'pointer',
-                    fontSize: '0.82rem',
-                    fontWeight: activeCategory === cat ? 600 : 400,
-                    fontFamily: 'var(--font-inter)',
-                    transition: 'all 0.25s ease',
-                    boxShadow: activeCategory === cat ? '0 4px 15px var(--color-primary-glow)' : 'none',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (activeCategory !== cat) {
-                      e.currentTarget.style.borderColor = 'var(--color-primary)'
-                      e.currentTarget.style.color = 'var(--color-primary)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (activeCategory !== cat) {
-                      e.currentTarget.style.borderColor = 'var(--color-border)'
-                      e.currentTarget.style.color = 'var(--color-text-muted)'
-                    }
-                  }}
+                  className={`menu-cat-pill${activeCategory === cat ? ' active' : ''}`}
                 >
                   {cat}
                 </button>

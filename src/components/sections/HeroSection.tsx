@@ -31,8 +31,8 @@ const CoffeeCup3D = dynamic(
             borderRadius: '50%',
             border: '3px solid rgba(212, 160, 74, 0.2)',
             borderTopColor: '#d4a04a',
-            animation: 'spin 1s linear infinite',
           }}
+          className="animate-spin"
         />
       </div>
     ),
