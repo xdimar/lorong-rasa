@@ -51,6 +51,7 @@ export function ReceiptModal({
 }: ReceiptModalProps) {
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('58mm')
   const [copied, setCopied] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
 
   if (!isOpen || !order) return null
 
@@ -73,7 +74,6 @@ export function ReceiptModal({
   const discount = order.discount_amount || 0
   const finalTotal = order.total_amount || Math.max(0, subtotal - discount)
   const shortOrderId = order.id ? order.id.slice(0, 8).toUpperCase() : 'LR-WALKIN'
-  const [isPrinting, setIsPrinting] = useState(false)
 
   // Dedicated thermal receipt printer handler using an isolated iframe
   const handlePrint = () => {
