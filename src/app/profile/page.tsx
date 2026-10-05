@@ -15,6 +15,8 @@ import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { LiveOrderTracker, ORDER_STATUS_CONFIG } from '@/components/orders/LiveOrderTracker'
+import { useCart } from '@/components/providers/CartProvider'
+import { useToast } from '@/components/providers/ToastProvider'
 import {
   getLoyaltyTier,
   getTierProgress,
@@ -129,6 +131,37 @@ export default function ProfilePage() {
     title: string
     remainingPoints: number
   } | null>(null)
+
+  const { applyVoucher, items } = useCart()
+  const { showToast } = useToast()
+
+  const handleUseVoucherOnline = (uv: UserVoucher) => {
+    const v = uv.vouchers
+    if (!v) return
+
+    applyVoucher(
+      {
+        code: v.code,
+        discount_type: v.discount_type,
+        discount_value: v.discount_value,
+        min_order: v.min_order,
+        product_name: v.product_name,
+      },
+      true
+    )
+
+    try {
+      localStorage.setItem('lorong_applied_voucher_code', v.code)
+    } catch {}
+
+    showToast(`Voucher ${v.code} terpasang! Mengalihkan ke menu...`, 'success')
+
+    if (items.length > 0) {
+      router.push('/checkout')
+    } else {
+      router.push('/menu')
+    }
+  }
 
   const supabase = createClient()
 
@@ -286,15 +319,39 @@ export default function ProfilePage() {
     setClaimMessage(null)
 
     try {
-      // 1. Check voucher in vouchers table
-      const { data: voucher, error: vErr } = await supabase
+      const cleanCode = code.trim().toUpperCase()
+
+      // 1. Check voucher in vouchers table (ilike code, share_token fallback, and fuzzy)
+      let { data: voucher } = await supabase
         .from('vouchers')
         .select('*')
-        .eq('code', code)
+        .ilike('code', cleanCode)
         .eq('is_active', true)
-        .single()
+        .maybeSingle()
 
-      if (vErr || !voucher) {
+      if (!voucher) {
+        const { data: byToken } = await supabase
+          .from('vouchers')
+          .select('*')
+          .eq('share_token', code.trim())
+          .eq('is_active', true)
+          .maybeSingle()
+        voucher = byToken
+      }
+
+      if (!voucher) {
+        const { data: fuzzyList } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', `%${cleanCode}%`)
+          .eq('is_active', true)
+
+        if (fuzzyList && fuzzyList.length > 0) {
+          voucher = fuzzyList.find((v: Voucher) => (v.code || '').trim().toUpperCase() === cleanCode) || fuzzyList[0]
+        }
+      }
+
+      if (!voucher) {
         setClaimMessage({ type: 'error', text: 'Kode promo tidak ditemukan atau sudah tidak aktif.' })
         setClaimLoading(false)
         return
@@ -317,8 +374,8 @@ export default function ProfilePage() {
         .from('user_vouchers')
         .select('id, status')
         .eq('user_id', userId)
-        .eq('voucher_id', voucher.id)
-        .single()
+        .or(`voucher_id.eq.${voucher.id},voucher_code.ilike.${voucher.code}`)
+        .maybeSingle()
 
       if (existing) {
         setClaimMessage({
@@ -1151,8 +1208,9 @@ export default function ProfilePage() {
                                         <QrCode size={13} />
                                         QR Kasir
                                       </button>
-                                      <Link
-                                        href="/menu"
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUseVoucherOnline(uv)}
                                         style={{
                                           background: 'var(--color-bg-card)',
                                           color: 'var(--color-text)',
@@ -1162,14 +1220,16 @@ export default function ProfilePage() {
                                           fontSize: '0.78rem',
                                           fontWeight: 600,
                                           fontFamily: 'var(--font-inter)',
-                                          textDecoration: 'none',
                                           display: 'flex',
                                           alignItems: 'center',
                                           gap: '4px',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.2s',
                                         }}
                                       >
+                                        <ShoppingBag size={13} style={{ color: 'var(--color-primary)' }} />
                                         Pakai Online
-                                      </Link>
+                                      </button>
                                     </div>
                                   )}
                                 </div>

@@ -32,7 +32,8 @@ export function parseProductPool(productNameRaw: string | null | undefined): Pro
  */
 export function getOrDrawAwardedProduct(
   voucherCode: string,
-  productNameRaw: string | null | undefined
+  productNameRaw: string | null | undefined,
+  preferredItemNames?: string[]
 ): string | null {
   const pool = parseProductPool(productNameRaw)
   if (pool.count === 0) return null
@@ -40,11 +41,37 @@ export function getOrDrawAwardedProduct(
 
   const storageKey = `lorong_lucky_product_${voucherCode.trim().toUpperCase()}`
 
+  // Cek apakah ada menu dari cart/preferredItems yang cocok dengan pool
+  const matchingPreferredItem = preferredItemNames?.find((prefName) =>
+    pool.items.some(
+      (p) =>
+        p.toLowerCase() === prefName.toLowerCase() ||
+        p.toLowerCase().includes(prefName.toLowerCase()) ||
+        prefName.toLowerCase().includes(p.toLowerCase())
+    )
+  )
+
   if (typeof window !== 'undefined') {
     try {
       const saved = localStorage.getItem(storageKey)
       if (saved && pool.items.some((it) => it.toLowerCase() === saved.toLowerCase())) {
-        return saved
+        // Jika item yang tersimpan ada di keranjang, atau tidak ada preferensi lain, gunakan yang tersimpan
+        if (!matchingPreferredItem || matchingPreferredItem.toLowerCase() === saved.toLowerCase()) {
+          return saved
+        }
+      }
+
+      // Jika user sudah memiliki item di keranjang yang termasuk dalam pool, prioritaskan item tersebut
+      if (matchingPreferredItem) {
+        const matchedPoolItem = pool.items.find(
+          (p) =>
+            p.toLowerCase() === matchingPreferredItem.toLowerCase() ||
+            p.toLowerCase().includes(matchingPreferredItem.toLowerCase()) ||
+            matchingPreferredItem.toLowerCase().includes(p.toLowerCase())
+        )
+        const chosen = matchedPoolItem || matchingPreferredItem
+        localStorage.setItem(storageKey, chosen)
+        return chosen
       }
 
       // Undi 1 produk acak dari daftar pilihan
@@ -55,6 +82,10 @@ export function getOrDrawAwardedProduct(
     } catch {
       // Fallback jika localStorage tidak dapat diakses
     }
+  }
+
+  if (matchingPreferredItem) {
+    return matchingPreferredItem
   }
 
   const randomIndex = Math.floor(Math.random() * pool.items.length)

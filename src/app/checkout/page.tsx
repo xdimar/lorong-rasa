@@ -82,6 +82,91 @@ export default function CheckoutPage() {
     fetchUserData()
   }, [])
 
+  // Validasi voucher aktif yang tersimpan di cart saat halaman checkout dibuka
+  useEffect(() => {
+    if (!voucher) return
+
+    let isMounted = true
+
+    const validateExistingVoucher = async () => {
+      try {
+        const cleanCode = voucher.code.trim().toUpperCase()
+
+        let { data } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', cleanCode)
+          .eq('is_active', true)
+          .maybeSingle()
+
+        if (!data) {
+          const { data: byToken } = await supabase
+            .from('vouchers')
+            .select('*')
+            .eq('share_token', cleanCode)
+            .eq('is_active', true)
+            .maybeSingle()
+          data = byToken
+        }
+
+        if (!data) {
+          const { data: fuzzyList } = await supabase
+            .from('vouchers')
+            .select('*')
+            .ilike('code', `%${cleanCode}%`)
+            .eq('is_active', true)
+
+          if (fuzzyList && fuzzyList.length > 0) {
+            data = fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === cleanCode) || fuzzyList[0]
+          }
+        }
+
+        if (!isMounted) return
+
+        if (!data) {
+          removeVoucher()
+          showToast(`Voucher "${voucher.code}" tidak valid atau sudah dinonaktifkan.`, 'error')
+          return
+        }
+
+        if (new Date(data.expires_at) < new Date()) {
+          removeVoucher()
+          showToast(`Voucher "${voucher.code}" telah kedaluwarsa dan otomatis dilepas.`, 'error')
+          return
+        }
+
+        if (data.max_uses && data.current_uses >= data.max_uses) {
+          removeVoucher()
+          showToast(`Kuota pemakaian voucher "${voucher.code}" sudah habis.`, 'error')
+          return
+        }
+
+        if (userId) {
+          const { data: userVoucher } = await supabase
+            .from('user_vouchers')
+            .select('status')
+            .eq('user_id', userId)
+            .or(`voucher_id.eq.${data.id},voucher_code.ilike.${cleanCode}`)
+            .maybeSingle()
+
+          if (userVoucher && userVoucher.status === 'used') {
+            removeVoucher()
+            showToast(`Voucher "${voucher.code}" sudah pernah kamu gunakan sebelumnya.`, 'error')
+            return
+          }
+        }
+      } catch (err) {
+        console.error('Error validating existing voucher on mount:', err)
+      }
+    }
+
+    validateExistingVoucher()
+
+    return () => {
+      isMounted = false
+    }
+  }, [voucher?.code, userId])
+
   // Apply Voucher with real-time Supabase check
   const handleApplyVoucher = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -98,6 +183,16 @@ export default function CheckoutPage() {
         .ilike('code', code)
         .eq('is_active', true)
         .maybeSingle()
+
+      if (!data) {
+        const { data: byToken } = await supabase
+          .from('vouchers')
+          .select('*')
+          .eq('share_token', code)
+          .eq('is_active', true)
+          .maybeSingle()
+        data = byToken
+      }
 
       if (!data) {
         const { data: fuzzyList } = await supabase
@@ -141,7 +236,7 @@ export default function CheckoutPage() {
           .from('user_vouchers')
           .select('status')
           .eq('user_id', userId)
-          .eq('voucher_id', data.id)
+          .or(`voucher_id.eq.${data.id},voucher_code.ilike.${data.code}`)
           .maybeSingle()
 
         if (userVoucher && userVoucher.status === 'used') {
@@ -151,14 +246,15 @@ export default function CheckoutPage() {
         }
       }
 
-      // Untuk voucher tipe product dengan multi-produk (lucky draw), tentukan produk yang dipilih secara acak
+      // Untuk voucher tipe product dengan multi-produk (lucky draw), prioritaskan menu yang sudah ada di cart
       let effectiveProductName: string | null = data.product_name || null
       let effectiveProductMenuItemId: string | null = data.product_menu_item_id || null
 
       if (data.discount_type === 'product' && data.product_name) {
         const pool = parseProductPool(data.product_name)
         if (pool.isPool) {
-          const drawn = getOrDrawAwardedProduct(data.code, data.product_name)
+          const cartItemNames = items.map((i) => i.name)
+          const drawn = getOrDrawAwardedProduct(data.code, data.product_name, cartItemNames)
           if (drawn) {
             effectiveProductName = drawn
           }
@@ -175,7 +271,20 @@ export default function CheckoutPage() {
       })
 
       if (applied) {
-        showToast(`Voucher ${data.code} berhasil dipasang!`, 'success')
+        const isMatchedInCart = items.some(
+          (i) =>
+            (effectiveProductMenuItemId && i.id === effectiveProductMenuItemId) ||
+            (effectiveProductName &&
+              (i.name.toLowerCase() === effectiveProductName.toLowerCase() ||
+                i.name.toLowerCase().includes(effectiveProductName.toLowerCase()) ||
+                effectiveProductName.toLowerCase().includes(i.name.toLowerCase())))
+        )
+
+        if (data.discount_type === 'product' && !isMatchedInCart && effectiveProductName) {
+          showToast(`Voucher ${data.code} terpasang! Jangan lupa masukkan menu "${effectiveProductName}" ke keranjang agar diskon terhitung.`, 'success')
+        } else {
+          showToast(`Voucher ${data.code} berhasil dipasang!`, 'success')
+        }
         setVoucherInput('')
       } else {
         setVoucherError('Gagal mengaktifkan voucher.')

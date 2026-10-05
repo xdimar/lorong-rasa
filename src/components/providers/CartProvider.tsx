@@ -124,7 +124,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const discount = useMemo(() => {
     if (!voucher) return 0
-    if (voucher.discount_type !== 'product' && subtotal < voucher.min_order) return 0
+    if (voucher.min_order > 0 && subtotal < voucher.min_order) return 0
     let val = 0
     if (voucher.discount_type === 'percentage') {
       val = Math.round((subtotal * voucher.discount_value) / 100)
@@ -137,7 +137,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
           (voucher.product_menu_item_id && i.id === voucher.product_menu_item_id) ||
           (allowedNames.length > 0 &&
             allowedNames.some(
-              name => i.name.toLowerCase() === name || i.name.toLowerCase().includes(name)
+              name =>
+                i.name.toLowerCase() === name ||
+                i.name.toLowerCase().includes(name) ||
+                name.includes(i.name.toLowerCase())
             ))
       )
       if (item) {
@@ -155,7 +158,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const applyVoucher = useCallback((v: AppliedVoucher, force = false): boolean => {
     const currentSubtotal = itemsRef.current.reduce((sum, i) => sum + i.price * i.quantity, 0)
-    if (!force && currentSubtotal > 0 && currentSubtotal < v.min_order) return false
+    if (!force && v.min_order > 0 && currentSubtotal > 0 && currentSubtotal < v.min_order) return false
     setVoucher(v)
     return true
   }, [])

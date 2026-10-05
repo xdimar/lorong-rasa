@@ -378,8 +378,8 @@ export default function ScanVoucherPage() {
         }
       }
 
-      // Langkah C: Cek apakah ada klaim aktif di user_vouchers untuk voucher ini
-      if (!uvRecord && code) {
+      // Langkah C: Hanya jika master vouchers tidak ditemukan, baru cek riwayat user_vouchers
+      if (!uvRecord && !voucherRecord && code) {
         const cleanCode = code.trim()
         let { data: byCodeList } = await supabase
           .from('user_vouchers')
@@ -399,15 +399,7 @@ export default function ScanVoucherPage() {
         }
 
         if (byCodeList && byCodeList.length > 0) {
-          const list = byCodeList as ClaimedVoucher[]
-          // Utamakan klaim member yang statusnya masih 'claimed' (belum dipakai)
-          const activeClaim = list.find((c: ClaimedVoucher) => c.status === 'claimed')
-          if (activeClaim) {
-            uvRecord = activeClaim
-          } else if (!voucherRecord) {
-            // Jika master vouchers tidak ditemukan, baru gunakan riwayat claim yang sudah 'used'
-            uvRecord = list[0]
-          }
+          uvRecord = byCodeList[0] as ClaimedVoucher
         }
       }
 

@@ -1595,14 +1595,15 @@ export function VoucherSection() {
             style={{
               position: 'fixed',
               inset: 0,
-              background: 'rgba(10, 5, 2, 0.78)',
+              background: 'rgba(10, 5, 2, 0.85)',
               backdropFilter: 'blur(10px)',
               WebkitBackdropFilter: 'blur(10px)',
               zIndex: 9999,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '1rem',
+              padding: '1.5rem 1rem',
+              overflowY: 'auto',
             }}
             onClick={() => setActiveModal(null)}
           >
@@ -1617,7 +1618,9 @@ export function VoucherSection() {
                 borderRadius: '26px',
                 maxWidth: '430px',
                 width: '100%',
-                overflow: 'hidden',
+                maxHeight: '88vh',
+                overflowY: 'auto',
+                margin: 'auto',
                 boxShadow:
                   '0 25px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(212, 160, 74, 0.15)',
                 border: '1.5px solid rgba(212, 160, 74, 0.35)',
@@ -2157,29 +2160,50 @@ export function VoucherSection() {
                           Barcode Kasir
                         </button>
 
-                        <a
-                          href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                            `Halo! Ada voucher promo spesial di Lorong Rasa: "${activeModal.voucher.description}". Pakai kode: ${activeModal.voucher.code}. Nikmati diskonnya di: ${siteUrl}/#voucher`
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            background: '#25D366',
-                            color: '#ffffff',
-                            borderRadius: '12px',
-                            padding: '9px 12px',
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          <Share2 size={13} />
-                          WhatsApp
-                        </a>
+                        {(() => {
+                          const v = activeModal.voucher
+                          const tokenOrCode = v.share_token || v.code
+                          const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}`
+                          let promoDesc = ''
+                          if (v.discount_type === 'product') {
+                            promoDesc = v.discount_value === 100
+                              ? `Gratis 1x ${v.product_name || 'Menu Pilihan'}`
+                              : `Diskon ${v.discount_value}% ${v.product_name || 'Menu Pilihan'}`
+                          } else if (v.discount_type === 'percentage') {
+                            promoDesc = `Diskon ${v.discount_value}% OFF`
+                          } else {
+                            promoDesc = `Potongan Rp ${(v.discount_value / 1000).toFixed(0)}rb`
+                          }
+                          const text =
+                            `🎟️ *VOUCHER LORONG RASA*\n` +
+                            `Kode: *${v.code}*\n` +
+                            `🎁 Promo: *${promoDesc}*\n\n` +
+                            `📲 *Buka barcode & klaim di sini:*\n` +
+                            `${claimUrl}`
+                          return (
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                background: '#25D366',
+                                color: '#ffffff',
+                                borderRadius: '12px',
+                                padding: '9px 12px',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                textDecoration: 'none',
+                              }}
+                            >
+                              <Share2 size={13} />
+                              Bagikan ke WhatsApp
+                            </a>
+                          )
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -2318,29 +2342,50 @@ export function VoucherSection() {
                         &larr; Lihat Voucher
                       </button>
 
-                      <a
-                        href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                          `Halo! Ada voucher promo spesial di Lorong Rasa: "${activeModal.voucher.description}". Pakai kode: ${activeModal.voucher.code}. Klaim sekarang di: ${siteUrl}/#voucher`
-                        )}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          background: '#25D366',
-                          color: '#ffffff',
-                          borderRadius: '10px',
-                          padding: '9px',
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '5px',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        <Share2 size={13} />
-                        WhatsApp
-                      </a>
+                      {(() => {
+                        const v = activeModal.voucher
+                        const tokenOrCode = v.share_token || v.code
+                        const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}`
+                        let promoDesc = ''
+                        if (v.discount_type === 'product') {
+                          promoDesc = v.discount_value === 100
+                            ? `Gratis 1x ${v.product_name || 'Menu Pilihan'}`
+                            : `Diskon ${v.discount_value}% ${v.product_name || 'Menu Pilihan'}`
+                        } else if (v.discount_type === 'percentage') {
+                          promoDesc = `Diskon ${v.discount_value}% OFF`
+                        } else {
+                          promoDesc = `Potongan Rp ${(v.discount_value / 1000).toFixed(0)}rb`
+                        }
+                        const text =
+                          `🎟️ *VOUCHER LORONG RASA*\n` +
+                          `Kode: *${v.code}*\n` +
+                          `🎁 Promo: *${promoDesc}*\n\n` +
+                          `📲 *Buka barcode & klaim di sini:*\n` +
+                          `${claimUrl}`
+                        return (
+                          <a
+                            href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              background: '#25D366',
+                              color: '#ffffff',
+                              borderRadius: '10px',
+                              padding: '9px',
+                              fontSize: '0.78rem',
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '5px',
+                              textDecoration: 'none',
+                            }}
+                          >
+                            <Share2 size={13} />
+                            WhatsApp
+                          </a>
+                        )
+                      })()}
                     </div>
                   </div>
                 )}

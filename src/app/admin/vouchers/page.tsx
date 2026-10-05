@@ -23,6 +23,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
 import { MultiProductSelector } from '@/components/admin/MultiProductSelector'
 import { parseProductPool } from '@/lib/voucher-draw'
+import { PhysicalVoucherModal } from '@/components/voucher/PhysicalVoucherModal'
 
 type DiscountType = 'percentage' | 'fixed' | 'product'
 
@@ -66,210 +67,12 @@ const emptyForm = {
 }
 
 function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () => void }) {
-  const [copied, setCopied] = useState(false)
-  const [siteUrl, setSiteUrl] = useState('')
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setSiteUrl(window.location.origin)
-    }
-  }, [])
-
-  const effectiveSiteUrl = siteUrl || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.lorong-rasa.my.id'
-  const shareIdentifier = voucher.share_token || voucher.code
-  const shareUrl = `${effectiveSiteUrl}/voucher/${shareIdentifier}`
-  // QR Code langsung mengarah ke URL klaim otomatis di smartphone
-  const qrValue = `${effectiveSiteUrl}/voucher/${shareIdentifier}?scan=1`
-
-  const productPool = parseProductPool(voucher.product_name)
-
-  const discountLabel =
-    voucher.discount_type === 'percentage'
-      ? `${voucher.discount_value}%`
-      : voucher.discount_type === 'fixed'
-      ? `Rp ${voucher.discount_value.toLocaleString('id-ID')}`
-      : productPool.isPool
-      ? `${voucher.discount_value}% (🎲 Acak 1 dari ${productPool.count} Menu)`
-      : `${voucher.discount_value}% — ${voucher.product_name || 'Produk Spesifik'}`
-
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(shareUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleShareWhatsApp = () => {
-    const productInfo = voucher.product_name
-      ? productPool.isPool
-        ? `Hadiah: *🎲 Acak 1 Menu dari (${voucher.product_name})*\n`
-        : `Berlaku untuk: *${voucher.product_name}*\n`
-      : ''
-    const text = `🎉 *Voucher Spesial Lorong Rasa!*\n\n` +
-      `Kode: *${voucher.code}*\n` +
-      `Diskon: *${discountLabel}*\n` +
-      productInfo +
-      `Min. order: *Rp ${voucher.min_order.toLocaleString('id-ID')}*\n` +
-      `Berlaku hingga: *${new Date(voucher.expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}*\n\n` +
-      `Klaim sekarang 👉 ${shareUrl}`
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
-  }
-
-  const handleShareInstagram = () => {
-    navigator.clipboard.writeText(
-      `✨ Dapatkan diskon ${discountLabel} di Lorong Rasa!\n\nKode voucher: ${voucher.code}\nKlaim di: ${shareUrl}\n\n#LorongRasa #SpecialtyCoffee #WajakMalang #KopiLokal`
-    )
-    alert('Caption Instagram telah disalin! Buka Instagram Stories atau feed untuk paste caption.')
-  }
-
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(10px)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative' }}
-      >
-        {/* Close */}
-        <button
-          onClick={onClose}
-          style={{ position: 'absolute', top: '-48px', right: 0, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
-        >
-          <X size={18} />
-        </button>
-
-        {/* === PAPER VOUCHER CARD === */}
-        <div style={{ background: '#faf8f5', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)', position: 'relative' }}>
-          {/* Top colored strip */}
-          <div style={{ background: 'linear-gradient(135deg, #c96427, #d4a04a)', padding: '1.25rem 1.5rem', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', right: '-30px', top: '-30px', width: '140px', height: '140px', borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.7)', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', fontFamily: 'monospace', marginBottom: '2px' }}>
-                  LORONG RASA OFFICIAL VOUCHER
-                </div>
-                <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>
-                  {voucher.discount_type === 'product' ? 'Diskon Produk Spesifik' : voucher.discount_type === 'percentage' ? 'Voucher Diskon Persen' : 'Voucher Potongan Harga'}
-                </div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '10px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Tag size={20} color="white" />
-              </div>
-            </div>
-          </div>
-
-          {/* Perforation holes */}
-          <div style={{ display: 'flex', alignItems: 'center', position: 'relative', margin: '0 -1px' }}>
-            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(0,0,0,0.82)', flexShrink: 0, marginLeft: '-12px' }} />
-            <div style={{ flex: 1, borderTop: '2px dashed #e0d8d0', margin: '0 8px' }} />
-            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(0,0,0,0.82)', flexShrink: 0, marginRight: '-12px' }} />
-          </div>
-
-          {/* Body */}
-          <div style={{ padding: '1.25rem 1.5rem', display: 'grid', gridTemplateColumns: '1fr auto', gap: '1.25rem', alignItems: 'center', background: '#faf8f5' }}>
-            {/* Left info */}
-            <div>
-              <div style={{ fontSize: '0.65rem', color: '#9b8e82', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '4px' }}>Diskon</div>
-              <div style={{ fontSize: '2.25rem', fontWeight: 900, color: '#c96427', fontFamily: 'Georgia, serif', lineHeight: 1, letterSpacing: '-0.02em', marginBottom: '6px' }}>
-                {voucher.discount_type === 'percentage'
-                  ? `${voucher.discount_value}%`
-                  : voucher.discount_type === 'fixed'
-                  ? `Rp${(voucher.discount_value / 1000).toFixed(0)}rb`
-                  : `${voucher.discount_value}% OFF`}
-              </div>
-              {voucher.product_name && (
-                <div style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  background: productPool.isPool ? 'rgba(147, 51, 234, 0.1)' : '#f0ebe6',
-                  border: `1px solid ${productPool.isPool ? 'rgba(147, 51, 234, 0.3)' : '#e0d8d0'}`,
-                  borderRadius: '6px',
-                  padding: '3px 8px',
-                  fontSize: '0.72rem',
-                  color: productPool.isPool ? '#9333ea' : '#7a6a5a',
-                  fontWeight: 600,
-                  marginBottom: '8px',
-                  maxWidth: '100%',
-                }}>
-                  {productPool.isPool ? <span>🎲</span> : <Coffee size={11} />}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {productPool.isPool
-                      ? `Acak 1 dari ${productPool.count} Menu: ${voucher.product_name}`
-                      : voucher.product_name}
-                  </span>
-                </div>
-              )}
-              <div style={{ fontSize: '0.75rem', color: '#9b8e82', marginBottom: '2px' }}>Min. order: Rp {voucher.min_order.toLocaleString('id-ID')}</div>
-              <div style={{ fontSize: '0.75rem', color: '#9b8e82' }}>Berlaku s/d: {new Date(voucher.expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-
-              {/* Voucher code */}
-              <div style={{ marginTop: '12px', background: '#f0ebe6', border: '1.5px dashed #c96427', borderRadius: '8px', padding: '6px 12px', display: 'inline-block' }}>
-                <div style={{ fontSize: '0.6rem', color: '#9b8e82', letterSpacing: '0.08em', marginBottom: '1px' }}>KODE VOUCHER</div>
-                <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.1rem', color: '#c96427', letterSpacing: '0.14em' }}>{voucher.code}</div>
-              </div>
-            </div>
-
-            {/* Right QR */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-              <div style={{ background: 'white', borderRadius: '10px', padding: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', border: '1px solid #e0d8d0' }}>
-                <QRCodeSVG
-                  value={qrValue}
-                  size={110}
-                  bgColor="#ffffff"
-                  fgColor="#2c1a0e"
-                  level="H"
-                  imageSettings={{
-                    src: '/favicon.ico',
-                    x: undefined,
-                    y: undefined,
-                    height: 20,
-                    width: 20,
-                    excavate: true,
-                  }}
-                />
-              </div>
-              <div style={{ fontSize: '0.6rem', color: '#9b8e82', textAlign: 'center', fontWeight: 600, letterSpacing: '0.06em' }}>SCAN TO REDEEM</div>
-            </div>
-          </div>
-
-          {/* Bottom strip */}
-          <div style={{ background: '#f0ebe6', borderTop: '1px solid #e0d8d0', padding: '0.65rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: '0.65rem', color: '#9b8e82', fontFamily: 'monospace' }}>www.lorong-rasa.my.id</div>
-            <div style={{ fontSize: '0.65rem', color: '#9b8e82' }}>Sisa kuota: {voucher.max_uses - voucher.current_uses}/{voucher.max_uses}</div>
-          </div>
-        </div>
-
-        {/* === Share Actions === */}
-        <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '16px', padding: '1.1rem' }}>
-          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.85rem' }}>Bagikan ke Media Sosial</div>
-          <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleCopyLink}
-              style={{ flex: 1, minWidth: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: copied ? 'rgba(74,158,106,0.2)' : 'rgba(255,255,255,0.08)', border: `1px solid ${copied ? 'rgba(74,158,106,0.4)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '10px', padding: '0.6rem 1rem', color: copied ? '#4a9e6a' : 'rgba(255,255,255,0.85)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'var(--font-inter)' }}
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? 'Tersalin!' : 'Salin Link'}
-            </button>
-            <button
-              onClick={handleShareWhatsApp}
-              style={{ flex: 1, minWidth: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'rgba(37,211,102,0.15)', border: '1px solid rgba(37,211,102,0.3)', borderRadius: '10px', padding: '0.6rem 1rem', color: '#25D366', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'var(--font-inter)' }}
-            >
-              <Share2 size={14} />WhatsApp
-            </button>
-            <button
-              onClick={handleShareInstagram}
-              style={{ flex: 1, minWidth: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'rgba(225,48,108,0.12)', border: '1px solid rgba(225,48,108,0.25)', borderRadius: '10px', padding: '0.6rem 1rem', color: '#e1306c', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', fontFamily: 'var(--font-inter)' }}
-            >
-              <Share2 size={14} />Instagram
-            </button>
-          </div>
-          <div style={{ marginTop: '0.75rem', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '0.5rem 0.75rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', wordBreak: 'break-all' }}>
-            {shareUrl}
-          </div>
-        </div>
-      </div>
-    </div>
+    <PhysicalVoucherModal
+      isOpen={true}
+      voucher={voucher}
+      onClose={onClose}
+    />
   )
 }
 
@@ -376,7 +179,24 @@ export default function VouchersPage() {
   }
 
   const handleDelete = async (id: string) => {
-    await supabase.from('vouchers').delete().eq('id', id)
+    const { error } = await supabase.from('vouchers').delete().eq('id', id)
+    if (error) {
+      console.error('Delete voucher error:', error)
+      if (
+        error.code === '23503' ||
+        error.message?.includes('foreign key') ||
+        error.message?.includes('violates foreign key')
+      ) {
+        const confirmDeactivate = confirm(
+          'Voucher ini tidak bisa dihapus permanen karena sudah tercatat dalam riwayat klaim member atau transaksi pesanan.\n\nApakah Anda ingin menonaktifkan voucher ini saja agar tidak bisa diklaim atau dipakai lagi?'
+        )
+        if (confirmDeactivate) {
+          await supabase.from('vouchers').update({ is_active: false }).eq('id', id)
+        }
+      } else {
+        alert(`Gagal menghapus voucher: ${error.message || 'Terjadi kendala pada database.'}`)
+      }
+    }
     setDeleteConfirm(null)
     fetchData()
   }

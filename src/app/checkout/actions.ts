@@ -138,6 +138,7 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
     // 4. Verifikasi Voucher di Sisi Server (Anti-Manipulasi Diskon)
     let serverDiscount = 0
     let validVoucherCode: string | null = null
+    let validatedVoucher: any = null
 
     if (payload.voucherCode?.trim()) {
       const cleanCode = payload.voucherCode.trim().toUpperCase()
@@ -148,6 +149,16 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
         .ilike('code', cleanCode)
         .eq('is_active', true)
         .maybeSingle()
+
+      if (!voucher) {
+        const { data: byToken } = await supabase
+          .from('vouchers')
+          .select('*')
+          .eq('share_token', cleanCode)
+          .eq('is_active', true)
+          .maybeSingle()
+        voucher = byToken
+      }
 
       if (!voucher) {
         const { data: fuzzyList } = await supabase
@@ -161,49 +172,70 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
         }
       }
 
-      if (voucher) {
-        const isNotExpired = new Date(voucher.expires_at) >= new Date()
-        const isQuotaAvailable = !voucher.max_uses || voucher.current_uses < voucher.max_uses
-        const isMinOrderMet = serverSubtotal >= (Number(voucher.min_order) || 0)
+      if (!voucher) {
+        return { success: false, error: `Kode voucher "${cleanCode}" tidak ditemukan atau sudah tidak aktif.` }
+      }
 
-        // Cek 1 akun 1 voucher di user_vouchers (jika user login)
-        let isNeverUsed = true
-        if (userId) {
-          const { data: userVoucher } = await supabase
-            .from('user_vouchers')
-            .select('id, status')
-            .eq('user_id', userId)
-            .eq('voucher_code', cleanCode)
-            .maybeSingle()
+      if (new Date(voucher.expires_at) < new Date()) {
+        return { success: false, error: `Voucher "${voucher.code}" telah kedaluwarsa.` }
+      }
 
-          isNeverUsed = !userVoucher || userVoucher.status !== 'used'
+      if (voucher.max_uses && voucher.current_uses >= voucher.max_uses) {
+        return { success: false, error: `Kuota pemakaian voucher "${voucher.code}" sudah habis.` }
+      }
+
+      if (Number(voucher.min_order) > 0 && serverSubtotal < Number(voucher.min_order)) {
+        return {
+          success: false,
+          error: `Minimal pesanan untuk voucher ini adalah Rp ${Number(voucher.min_order).toLocaleString('id-ID')}.`,
         }
+      }
 
-        if (isNotExpired && isQuotaAvailable && isMinOrderMet && isNeverUsed) {
-          validVoucherCode = cleanCode
+      // Cek 1 akun 1 voucher di user_vouchers (jika user login)
+      if (userId) {
+        const { data: userVoucher } = await supabase
+          .from('user_vouchers')
+          .select('id, status')
+          .eq('user_id', userId)
+          .or(`voucher_code.ilike.${cleanCode},voucher_id.eq.${voucher.id}`)
+          .maybeSingle()
 
-          if (voucher.discount_type === 'percentage') {
-            serverDiscount = Math.round((serverSubtotal * Number(voucher.discount_value)) / 100)
-          } else if (voucher.discount_type === 'fixed') {
-            serverDiscount = Math.min(serverSubtotal, Number(voucher.discount_value))
-          } else if (voucher.discount_type === 'product' && voucher.product_name) {
-            const allowedNames = voucher.product_name
-              .split(',')
-              .map((s: string) => s.trim().toLowerCase())
-              .filter(Boolean)
-            const matchedItem = verifiedOrderItems.find((it) =>
-              allowedNames.some(
-                (name: string) =>
-                  it.menu_item_name.toLowerCase() === name ||
-                  it.menu_item_name.toLowerCase().includes(name) ||
-                  name.includes(it.menu_item_name.toLowerCase())
-              )
-            )
-            if (matchedItem) {
-              const discountPercent = Number(voucher.discount_value) || 100
-              const itemDiscount = Math.round((matchedItem.price * discountPercent) / 100)
-              serverDiscount = Math.min(serverSubtotal, itemDiscount)
-            }
+        if (userVoucher && userVoucher.status === 'used') {
+          return {
+            success: false,
+            error: `Kamu sudah pernah menggunakan voucher "${voucher.code}" sebelumnya (Maksimal 1 voucher per akun).`,
+          }
+        }
+      }
+
+      validVoucherCode = voucher.code.trim()
+      validatedVoucher = voucher
+
+      if (voucher.discount_type === 'percentage') {
+        serverDiscount = Math.round((serverSubtotal * Number(voucher.discount_value)) / 100)
+      } else if (voucher.discount_type === 'fixed') {
+        serverDiscount = Math.min(serverSubtotal, Number(voucher.discount_value))
+      } else if (voucher.discount_type === 'product' && voucher.product_name) {
+        const allowedNames = voucher.product_name
+          .split(',')
+          .map((s: string) => s.trim().toLowerCase())
+          .filter(Boolean)
+        const matchedItem = verifiedOrderItems.find((it) =>
+          allowedNames.some(
+            (name: string) =>
+              it.menu_item_name.toLowerCase() === name ||
+              it.menu_item_name.toLowerCase().includes(name) ||
+              name.includes(it.menu_item_name.toLowerCase())
+          )
+        )
+        if (matchedItem) {
+          const discountPercent = Number(voucher.discount_value) || 100
+          const itemDiscount = Math.round((matchedItem.price * discountPercent) / 100)
+          serverDiscount = Math.min(serverSubtotal, itemDiscount)
+        } else {
+          return {
+            success: false,
+            error: `Voucher ini hanya berlaku untuk menu: ${voucher.product_name}. Silakan tambahkan menu tersebut ke keranjang Anda.`,
           }
         }
       }
@@ -260,14 +292,14 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
     }
 
     // 8. Tandai Pemakaian Voucher (jika login simpan di user_vouchers & update kuota vouchers)
-    if (validVoucherCode && serverDiscount > 0) {
+    if (validVoucherCode && serverDiscount > 0 && validatedVoucher) {
       try {
         if (userId) {
           const { data: existingUv } = await supabase
             .from('user_vouchers')
             .select('id')
             .eq('user_id', userId)
-            .eq('voucher_code', validVoucherCode)
+            .or(`voucher_code.ilike.${validVoucherCode},voucher_id.eq.${validatedVoucher.id}`)
             .maybeSingle()
 
           if (existingUv) {
@@ -281,39 +313,23 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
               })
               .eq('id', existingUv.id)
           } else {
-            const { data: vRecord } = await supabase
-              .from('vouchers')
-              .select('id')
-              .eq('code', validVoucherCode)
-              .maybeSingle()
-
-            if (vRecord) {
-              await supabase.from('user_vouchers').insert({
-                user_id: userId,
-                voucher_id: vRecord.id,
-                voucher_code: validVoucherCode,
-                status: 'used',
-                used_at: new Date().toISOString(),
-                used_via: 'online_checkout',
-                order_id: orderData.id,
-              })
-            }
+            await supabase.from('user_vouchers').insert({
+              user_id: userId,
+              voucher_id: validatedVoucher.id,
+              voucher_code: validVoucherCode,
+              status: 'used',
+              used_at: new Date().toISOString(),
+              used_via: 'online_checkout',
+              order_id: orderData.id,
+            })
           }
         }
 
         // Tambah kuota terpakai pada tabel vouchers
-        const { data: vRecord } = await supabase
+        await supabase
           .from('vouchers')
-          .select('id, current_uses')
-          .eq('code', validVoucherCode)
-          .maybeSingle()
-
-        if (vRecord) {
-          await supabase
-            .from('vouchers')
-            .update({ current_uses: (vRecord.current_uses || 0) + 1 })
-            .eq('id', vRecord.id)
-        }
+          .update({ current_uses: (validatedVoucher.current_uses || 0) + 1 })
+          .eq('id', validatedVoucher.id)
       } catch (vErr) {
         console.error('Non-critical: voucher usage status update notice:', vErr)
       }
