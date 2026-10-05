@@ -39,14 +39,10 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
   try {
     const supabase = await createClient()
 
-    // 1. Verifikasi Autentikasi Pengguna (Wajib Login sebelum Checkout)
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
-    if (authErr || !user) {
-      return {
-        success: false,
-        error: 'Sesi berakhir atau Anda belum login. Silakan login terlebih dahulu untuk menyelesaikan pesanan.',
-      }
-    }
+    // 1. Cek Autentikasi Pengguna (Mendukung Guest Checkout & Member Terdaftar)
+    const { data: { user } } = await supabase.auth.getUser()
+    const userId = user?.id || null
+    const userEmail = user?.email || payload.customerEmail?.trim() || null
 
     // 2. Validasi Input Dasar
     const customerName = payload.customerName?.trim()
@@ -158,15 +154,18 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
         const isQuotaAvailable = !voucher.max_uses || voucher.current_uses < voucher.max_uses
         const isMinOrderMet = serverSubtotal >= (Number(voucher.min_order) || 0)
 
-        // Cek 1 akun 1 voucher di user_vouchers
-        const { data: userVoucher } = await supabase
-          .from('user_vouchers')
-          .select('id, status')
-          .eq('user_id', user.id)
-          .eq('voucher_code', cleanCode)
-          .maybeSingle()
+        // Cek 1 akun 1 voucher di user_vouchers (jika user login)
+        let isNeverUsed = true
+        if (userId) {
+          const { data: userVoucher } = await supabase
+            .from('user_vouchers')
+            .select('id, status')
+            .eq('user_id', userId)
+            .eq('voucher_code', cleanCode)
+            .maybeSingle()
 
-        const isNeverUsed = !userVoucher || userVoucher.status !== 'used'
+          isNeverUsed = !userVoucher || userVoucher.status !== 'used'
+        }
 
         if (isNotExpired && isQuotaAvailable && isMinOrderMet && isNeverUsed) {
           validVoucherCode = cleanCode
@@ -194,10 +193,10 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
     const { data: orderData, error: orderErr } = await supabase
       .from('orders')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         customer_name: customerName,
         customer_phone: customerPhone,
-        customer_email: user.email || payload.customerEmail?.trim() || null,
+        customer_email: userEmail,
         order_type: payload.orderType,
         table_number: payload.orderType === 'dine_in' ? payload.tableNumber?.trim() : null,
         payment_method: payload.paymentMethod,
@@ -237,44 +236,60 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
       }
     }
 
-    // 8. Tandai Pemakaian Voucher untuk User
+    // 8. Tandai Pemakaian Voucher (jika login simpan di user_vouchers & update kuota vouchers)
     if (validVoucherCode && serverDiscount > 0) {
       try {
-        const { data: existingUv } = await supabase
-          .from('user_vouchers')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('voucher_code', validVoucherCode)
-          .maybeSingle()
-
-        if (existingUv) {
-          await supabase
+        if (userId) {
+          const { data: existingUv } = await supabase
             .from('user_vouchers')
-            .update({
-              status: 'used',
-              used_at: new Date().toISOString(),
-              used_via: 'online_checkout',
-              order_id: orderData.id,
-            })
-            .eq('id', existingUv.id)
-        } else {
-          const { data: vRecord } = await supabase
-            .from('vouchers')
             .select('id')
-            .eq('code', validVoucherCode)
+            .eq('user_id', userId)
+            .eq('voucher_code', validVoucherCode)
             .maybeSingle()
 
-          if (vRecord) {
-            await supabase.from('user_vouchers').insert({
-              user_id: user.id,
-              voucher_id: vRecord.id,
-              voucher_code: validVoucherCode,
-              status: 'used',
-              used_at: new Date().toISOString(),
-              used_via: 'online_checkout',
-              order_id: orderData.id,
-            })
+          if (existingUv) {
+            await supabase
+              .from('user_vouchers')
+              .update({
+                status: 'used',
+                used_at: new Date().toISOString(),
+                used_via: 'online_checkout',
+                order_id: orderData.id,
+              })
+              .eq('id', existingUv.id)
+          } else {
+            const { data: vRecord } = await supabase
+              .from('vouchers')
+              .select('id')
+              .eq('code', validVoucherCode)
+              .maybeSingle()
+
+            if (vRecord) {
+              await supabase.from('user_vouchers').insert({
+                user_id: userId,
+                voucher_id: vRecord.id,
+                voucher_code: validVoucherCode,
+                status: 'used',
+                used_at: new Date().toISOString(),
+                used_via: 'online_checkout',
+                order_id: orderData.id,
+              })
+            }
           }
+        }
+
+        // Tambah kuota terpakai pada tabel vouchers
+        const { data: vRecord } = await supabase
+          .from('vouchers')
+          .select('id, current_uses')
+          .eq('code', validVoucherCode)
+          .maybeSingle()
+
+        if (vRecord) {
+          await supabase
+            .from('vouchers')
+            .update({ current_uses: (vRecord.current_uses || 0) + 1 })
+            .eq('id', vRecord.id)
         }
       } catch (vErr) {
         console.error('Non-critical: voucher usage status update notice:', vErr)

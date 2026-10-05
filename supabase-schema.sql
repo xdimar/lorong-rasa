@@ -293,9 +293,14 @@ CREATE TABLE IF NOT EXISTS public.orders (
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Orders readable by owner or staff" ON public.orders;
-CREATE POLICY "Orders readable by owner or staff"
+DROP POLICY IF EXISTS "Orders select policy" ON public.orders;
+CREATE POLICY "Orders select policy"
   ON public.orders FOR SELECT
-  USING (auth.uid() = user_id OR public.is_staff());
+  USING (
+    (auth.uid() IS NOT NULL AND auth.uid() = user_id)
+    OR public.is_staff()
+    OR user_id IS NULL
+  );
 
 DROP POLICY IF EXISTS "Anyone can insert order" ON public.orders;
 CREATE POLICY "Anyone can insert order"
@@ -319,13 +324,18 @@ CREATE TABLE IF NOT EXISTS public.order_items (
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Order items readable by owner or staff" ON public.order_items;
-CREATE POLICY "Order items readable by owner or staff"
+DROP POLICY IF EXISTS "Order items select policy" ON public.order_items;
+CREATE POLICY "Order items select policy"
   ON public.order_items FOR SELECT
   USING (
     EXISTS (
       SELECT 1 FROM public.orders
       WHERE orders.id = order_items.order_id
-        AND (orders.user_id = auth.uid() OR public.is_staff())
+      AND (
+        (auth.uid() IS NOT NULL AND orders.user_id = auth.uid())
+        OR public.is_staff()
+        OR orders.user_id IS NULL
+      )
     )
   );
 

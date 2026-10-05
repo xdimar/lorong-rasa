@@ -16,6 +16,7 @@ const footerColumns = [
   {
     title: 'Layanan & Bantuan',
     links: [
+      { href: '/panduan', label: '📖 Panduan Penggunaan' },
       { href: '/#about', label: 'Tentang Lorong Rasa' },
       { href: '/#voucher', label: 'Klaim Voucher Diskon' },
       { href: '/kebijakan-privasi', label: 'Kebijakan Privasi' },

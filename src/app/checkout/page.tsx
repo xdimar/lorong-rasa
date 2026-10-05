@@ -245,132 +245,6 @@ export default function CheckoutPage() {
     )
   }
 
-  // Wajib Login sebelum Checkout (Proteksi Akun & Pelacakan Struk Pesanan)
-  if (authChecked && !userId) {
-    return (
-      <>
-        <Navbar />
-        <main style={{ minHeight: '85vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', padding: '6rem 1.5rem 4rem' }}>
-          <div style={{
-            textAlign: 'center',
-            maxWidth: '500px',
-            width: '100%',
-            background: 'var(--color-bg-card)',
-            padding: 'clamp(2rem, 5vw, 3rem) 2rem',
-            borderRadius: 'var(--radius-xl)',
-            border: '1.5px solid var(--color-border)',
-            boxShadow: 'var(--shadow-lg)',
-            position: 'relative',
-          }}>
-            <div style={{
-              width: '68px',
-              height: '68px',
-              borderRadius: '20px',
-              background: 'linear-gradient(135deg, var(--color-primary-glow), var(--color-bg-secondary))',
-              border: '1.5px solid var(--color-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 1.5rem',
-              color: 'var(--color-primary)',
-              boxShadow: '0 8px 24px var(--color-primary-glow)',
-            }}>
-              <Lock size={32} />
-            </div>
-
-            <span style={{
-              fontSize: '0.78rem',
-              color: 'var(--color-primary)',
-              fontFamily: 'var(--font-inter)',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-            }}>
-              — Akun Member Lorong Rasa —
-            </span>
-
-            <h1 style={{
-              fontSize: 'clamp(1.4rem, 3.5vw, 1.85rem)',
-              fontFamily: 'var(--font-playfair)',
-              margin: '0.5rem 0 0.85rem',
-              color: 'var(--color-text)',
-            }}>
-              Masuk untuk Menyelesaikan Pesanan
-            </h1>
-
-            <p style={{
-              color: 'var(--color-text-muted)',
-              fontFamily: 'var(--font-inter)',
-              fontSize: '0.9rem',
-              marginBottom: '1.75rem',
-              lineHeight: 1.6,
-            }}>
-              Demi keamanan transaksi, pelacakan status pesanan secara real-time, serta perolehan poin loyalitas &amp; voucher, silakan masuk ke akun Anda terlebih dahulu.
-            </p>
-
-            <div style={{
-              background: 'var(--color-bg-secondary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: '1rem',
-              marginBottom: '2rem',
-              textAlign: 'left',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.65rem',
-              fontSize: '0.85rem',
-              color: 'var(--color-text-secondary)',
-              fontFamily: 'var(--font-inter)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle2 size={16} color="var(--color-primary)" />
-                <span>Lacak status racikan barista secara real-time</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle2 size={16} color="var(--color-primary)" />
-                <span>Otomatis kumpulkan Poin Loyalitas &amp; Diskon Member</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle2 size={16} color="var(--color-primary)" />
-                <span>Struk &amp; riwayat belanja tersimpan aman di akun Anda</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              <Link
-                href="/login?redirect=/checkout"
-                className="btn-primary"
-                style={{
-                  width: '100%',
-                  justifyContent: 'center',
-                  padding: '0.9rem',
-                  fontSize: '0.95rem',
-                  fontWeight: 700,
-                }}
-              >
-                Masuk ke Akun
-              </Link>
-              <Link
-                href="/register?redirect=/checkout"
-                className="btn-outline"
-                style={{
-                  width: '100%',
-                  justifyContent: 'center',
-                  padding: '0.85rem',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                }}
-              >
-                Belum Punya Akun? Daftar Sekarang
-              </Link>
-            </div>
-          </div>
-        </main>
-        <Footer />
-      </>
-    )
-  }
-
   return (
     <>
       <Navbar />
@@ -398,7 +272,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Title */}
-          <div style={{ marginBottom: '2.5rem' }}>
+          <div style={{ marginBottom: '1.75rem' }}>
             <span style={{
               fontSize: '0.82rem',
               color: 'var(--color-primary)',
@@ -418,6 +292,75 @@ export default function CheckoutPage() {
               Checkout Pesanan
             </h1>
           </div>
+
+          {/* Guest or Member Status Notification Banner */}
+          {!userId ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              background: 'rgba(212, 175, 55, 0.08)',
+              border: '1px solid rgba(212, 175, 55, 0.25)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '1rem 1.25rem',
+              marginBottom: '2rem',
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'rgba(212, 175, 55, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--color-gold)',
+                  flexShrink: 0,
+                }}>
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--color-text)', fontFamily: 'var(--font-inter)', marginBottom: '2px' }}>
+                    Pemesanan sebagai Tamu (Guest)
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', lineHeight: 1.4 }}>
+                    Anda dapat memesan langsung tanpa login. Riwayat belanja dan Poin Loyalitas tidak akan tersimpan di akun.
+                  </div>
+                </div>
+              </div>
+              <Link
+                href="/login?redirect=/checkout"
+                className="btn-outline"
+                style={{
+                  padding: '7px 16px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-md)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Masuk / Daftar Akun
+              </Link>
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              background: 'rgba(74, 158, 106, 0.08)',
+              border: '1px solid rgba(74, 158, 106, 0.25)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '0.9rem 1.25rem',
+              marginBottom: '2rem',
+            }}>
+              <CheckCircle2 size={20} color="#4a9e6a" style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: '0.85rem', color: 'var(--color-text)', fontFamily: 'var(--font-inter)' }}>
+                Akun Member Aktif: <strong>{customerName || customerEmail || 'Member'}</strong>. Pesanan ini akan otomatis tersimpan di riwayat akun &amp; mendapatkan Poin Member.
+              </div>
+            </div>
+          )}
 
           {/* Form Layout */}
           <form onSubmit={handleCreateOrder}>
@@ -820,25 +763,47 @@ export default function CheckoutPage() {
                   </div>
 
                   {/* Loyalty Points Estimate */}
-                  {userId && total >= 10000 && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: 'rgba(212, 175, 55, 0.08)',
-                      border: '1px solid rgba(212, 175, 55, 0.3)',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      marginBottom: '1.25rem',
-                      fontSize: '0.8rem',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-gold)', fontWeight: 600 }}>
-                        <Sparkles size={14} /> Poin Rasa Diperoleh:
+                  {userId ? (
+                    total >= 10000 && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'rgba(212, 175, 55, 0.08)',
+                        border: '1px solid rgba(212, 175, 55, 0.3)',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        marginBottom: '1.25rem',
+                        fontSize: '0.8rem',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-gold)', fontWeight: 600 }}>
+                          <Sparkles size={14} /> Poin Rasa Diperoleh:
+                        </div>
+                        <span style={{ fontWeight: 700, color: 'var(--color-gold)' }}>
+                          +{Math.floor(total / 10000)} Poin
+                        </span>
                       </div>
-                      <span style={{ fontWeight: 700, color: 'var(--color-gold)' }}>
-                        +{Math.floor(total / 10000)} Poin
-                      </span>
-                    </div>
+                    )
+                  ) : (
+                    total >= 10000 && (
+                      <div style={{
+                        background: 'var(--color-bg-secondary)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: '8px',
+                        padding: '9px 12px',
+                        marginBottom: '1.25rem',
+                        fontSize: '0.78rem',
+                        color: 'var(--color-text-muted)',
+                        fontFamily: 'var(--font-inter)',
+                        lineHeight: 1.4,
+                      }}>
+                        <span>💡 Ingin dapat <strong>+{Math.floor(total / 10000)} Poin Member</strong>? </span>
+                        <Link href="/login?redirect=/checkout" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>
+                          Masuk akun
+                        </Link>
+                        <span> sebelum checkout.</span>
+                      </div>
+                    )
                   )}
 
                   {errorMsg && (

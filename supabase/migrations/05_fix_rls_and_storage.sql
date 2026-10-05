@@ -145,3 +145,75 @@ CREATE POLICY "Staff can delete menu images"
     bucket_id = 'menu-images'
     AND public.is_staff()
   );
+
+-- ------------------------------------------------------------
+-- 5. KEBIJAKAN RLS ORDERS & ORDER ITEMS (MENDUKUNG GUEST ORDER)
+--    Memastikan pemesan tanpa login (guest) dapat melihat struk
+--    pesanan mereka di halaman /orders/[id].
+-- ------------------------------------------------------------
+DROP POLICY IF EXISTS "Orders readable by owner or staff" ON public.orders;
+DROP POLICY IF EXISTS "Orders select policy" ON public.orders;
+CREATE POLICY "Orders select policy"
+  ON public.orders FOR SELECT
+  USING (
+    (auth.uid() IS NOT NULL AND auth.uid() = user_id)
+    OR public.is_staff()
+    OR user_id IS NULL
+  );
+
+DROP POLICY IF EXISTS "Order items readable by owner or staff" ON public.order_items;
+DROP POLICY IF EXISTS "Order items select policy" ON public.order_items;
+CREATE POLICY "Order items select policy"
+  ON public.order_items FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.orders
+      WHERE orders.id = order_items.order_id
+      AND (
+        (auth.uid() IS NOT NULL AND orders.user_id = auth.uid())
+        OR public.is_staff()
+        OR orders.user_id IS NULL
+      )
+    )
+  );
+
+-- ------------------------------------------------------------
+-- 6. TRIGGER POIN LOYALITAS (KHUSUS MEMBER, AMAN DARI GUEST)
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_order_loyalty_points()
+RETURNS TRIGGER AS $$
+DECLARE
+  points_to_award INTEGER;
+BEGIN
+  -- Hanya berikan poin jika user_id TIDAK NULL (pemesan terdaftar sebagai member)
+  IF NEW.user_id IS NOT NULL AND (NEW.status = 'completed' OR NEW.payment_status = 'paid') THEN
+    points_to_award := floor(coalesce(NEW.total_amount, 0) / 10000);
+    
+    IF points_to_award > 0 AND NOT EXISTS (
+      SELECT 1 FROM public.loyalty_transactions
+      WHERE order_id = NEW.id AND type = 'earned'
+    ) THEN
+      INSERT INTO public.loyalty_transactions (user_id, points, type, description, order_id)
+      VALUES (
+        NEW.user_id,
+        points_to_award,
+        'earned',
+        'Perolehan poin dari pesanan #' || upper(substring(NEW.id::text, 1, 8)),
+        NEW.id
+      );
+
+      UPDATE public.profiles
+      SET loyalty_points = coalesce(loyalty_points, 0) + points_to_award
+      WHERE id = NEW.user_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS tr_order_loyalty_points ON public.orders;
+CREATE TRIGGER tr_order_loyalty_points
+  AFTER INSERT OR UPDATE ON public.orders
+  FOR EACH ROW EXECUTE FUNCTION public.handle_order_loyalty_points();
+
+

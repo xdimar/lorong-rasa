@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Store,
   MessageSquare,
+  BookOpen,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
@@ -38,6 +39,7 @@ const allNavItems: NavItemConfig[] = [
   { href: '/admin/reviews', icon: MessageSquare, label: 'Ulasan Menu', roles: ['admin', 'cashier'] },
   { href: '/admin/vouchers', icon: Tag, label: 'Voucher', roles: ['admin'] },
   { href: '/admin/users', icon: Users, label: 'Pengguna', roles: ['admin'] },
+  { href: '/panduan?role=admin', icon: BookOpen, label: 'Panduan Web', roles: ['admin', 'cashier'] },
 ]
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {

@@ -91,6 +91,7 @@ export function Navbar() {
     { href: '/menu', label: 'Menu' },
     { href: '/#about', label: 'Tentang' },
     { href: '/#voucher', label: 'Voucher' },
+    { href: '/panduan', label: 'Panduan' },
     { href: '/#contact', label: 'Kontak' },
   ]
 
