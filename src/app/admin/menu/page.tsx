@@ -108,7 +108,11 @@ export default function MenuAdminPage() {
 
       const { data, error } = await supabase.storage
         .from('menu-images')
-        .upload(fileName, blob, { cacheControl: '3600', upsert: false })
+        .upload(fileName, blob, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: blob.type || 'image/jpeg',
+        })
 
       setUploadProgress(80)
 
@@ -117,7 +121,7 @@ export default function MenuAdminPage() {
         if (typeof input === 'string') {
           setUploading(false)
           setUploadProgress(null)
-          setUploadMessage('✓ Foto disesuaikan & disimpan.')
+          setUploadMessage(`⚠️ Menggunakan Data URL lokal (Storage error: ${error?.message || '500'})`)
           return input
         }
         return new Promise((resolve) => {
@@ -125,7 +129,7 @@ export default function MenuAdminPage() {
           reader.onload = () => {
             setUploading(false)
             setUploadProgress(null)
-            setUploadMessage('✓ Foto disesuaikan & disimpan.')
+            setUploadMessage(`⚠️ Menggunakan Data URL lokal (Storage error: ${error?.message || '500'})`)
             resolve(reader.result as string)
           }
           reader.readAsDataURL(blob)

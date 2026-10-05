@@ -47,7 +47,8 @@ export function ImageAdjustModal({
   const dragStartRef = useRef({ x: 0, y: 0 })
   const panStartRef = useRef({ x: 0, y: 0 })
 
-  // Canvas and Image references
+  // Canvas, Viewport, and Image references
+  const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const loadedImageRef = useRef<HTMLImageElement | null>(null)
   const [imgLoaded, setImgLoaded] = useState(false)
@@ -187,12 +188,23 @@ export function ImageAdjustModal({
     setIsDragging(false)
   }
 
-  // Wheel to zoom
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    const delta = e.deltaY * -0.0015
-    setZoom(prev => Math.min(Math.max(0.4, prev + delta), 3.5))
-  }
+  // Non-passive wheel event listener to avoid "Unable to preventDefault inside passive event listener invocation"
+  useEffect(() => {
+    if (!isOpen) return
+    const el = viewportRef.current
+    if (!el) return
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const delta = e.deltaY * -0.0015
+      setZoom(prev => Math.min(Math.max(0.4, prev + delta), 3.5))
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+    }
+  }, [isOpen])
 
   // Rotate 90 degrees
   const handleRotate = () => {
@@ -360,6 +372,7 @@ export function ImageAdjustModal({
           {/* Interactive Canvas Viewport */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div
+              ref={viewportRef}
               style={{
                 width: `${previewMaxWidth}px`,
                 maxWidth: '100%',
@@ -384,7 +397,6 @@ export function ImageAdjustModal({
                 if (e.touches[0]) handlePointerMove(e.touches[0].clientX, e.touches[0].clientY)
               }}
               onTouchEnd={handlePointerUp}
-              onWheel={handleWheel}
               title="Klik dan seret untuk memposisikan foto. Scroll mouse untuk zoom."
             >
               <canvas

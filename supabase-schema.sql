@@ -36,6 +36,10 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
   RETURN EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'admin'
@@ -50,12 +54,21 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
   RETURN EXISTS (
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role IN ('admin', 'cashier')
   );
 END;
 $$;
+
+ALTER FUNCTION public.is_admin() OWNER TO postgres;
+ALTER FUNCTION public.is_staff() OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_staff() TO anon, authenticated, service_role;
 
 -- Trigger auto-create profile saat user sign up
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -95,8 +108,10 @@ CREATE TRIGGER on_auth_user_created
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admin can manage all profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Profiles readable by authenticated users" ON public.profiles;
-CREATE POLICY "Profiles readable by authenticated users"
+DROP POLICY IF EXISTS "Profiles readable by everyone" ON public.profiles;
+CREATE POLICY "Profiles readable by everyone"
   ON public.profiles FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
@@ -110,12 +125,19 @@ CREATE POLICY "Users can insert own profile"
   );
 
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
-CREATE POLICY "Users can update own profile"
-  ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Admin can update all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Users and admin can update profiles" ON public.profiles;
+CREATE POLICY "Users and admin can update profiles"
+  ON public.profiles FOR UPDATE
+  USING (
+    (auth.uid() IS NOT NULL AND auth.uid() = id)
+    OR public.is_admin()
+  );
 
-DROP POLICY IF EXISTS "Admin can manage all profiles" ON public.profiles;
-CREATE POLICY "Admin can manage all profiles"
-  ON public.profiles FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Admin can delete all profiles" ON public.profiles;
+CREATE POLICY "Admin can delete all profiles"
+  ON public.profiles FOR DELETE
+  USING (public.is_admin());
 
 -- ------------------------------------------------------------
 -- 3. TABEL MENU CATEGORIES & MENU ITEMS
@@ -433,3 +455,56 @@ VALUES
   ('Voucher Spesial Rp 25.000', 'Potongan besar Rp 25.000 untuk pesanan dine in maupun takeaway dengan min. belanja Rp 60.000.', 40, 'voucher', 'fixed', 25000, 60000, 'Sparkles'),
   ('Traktiran Kopi Lorong Rasa (Rp 35.000)', 'Voucher senilai Rp 35.000 setara free minuman signature favoritmu!', 60, 'voucher', 'fixed', 35000, 35000, 'Coffee')
 ON CONFLICT DO NOTHING;
+
+-- ------------------------------------------------------------
+-- 10. STORAGE BUCKET & POLICIES (MENU IMAGES)
+-- ------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'menu-images',
+  'menu-images',
+  true,
+  10485760, -- 10 MB
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 10485760,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+DROP POLICY IF EXISTS "Menu images are publicly accessible" ON storage.objects;
+DROP POLICY IF EXISTS "Menu images public access" ON storage.objects;
+DROP POLICY IF EXISTS "Public Access" ON storage.objects;
+DROP POLICY IF EXISTS "Staff can upload menu images" ON storage.objects;
+DROP POLICY IF EXISTS "Staff can insert menu images" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload menu images" ON storage.objects;
+DROP POLICY IF EXISTS "Staff can update menu images" ON storage.objects;
+DROP POLICY IF EXISTS "Staff can delete menu images" ON storage.objects;
+
+CREATE POLICY "Menu images are publicly accessible"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'menu-images');
+
+CREATE POLICY "Staff can upload menu images"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'menu-images'
+    AND public.is_staff()
+  );
+
+CREATE POLICY "Staff can update menu images"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (
+    bucket_id = 'menu-images'
+    AND public.is_staff()
+  );
+
+CREATE POLICY "Staff can delete menu images"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'menu-images'
+    AND public.is_staff()
+  );
