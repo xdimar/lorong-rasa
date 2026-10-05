@@ -24,7 +24,6 @@ import {
   PartyPopper,
   Maximize2,
   X,
-  RotateCw,
   Store,
   CreditCard,
   ChevronRight,
@@ -865,30 +864,6 @@ function VoucherDetailContent({ token }: { token: string }) {
                           </div>
                         </div>
                       </div>
-
-                      {/* Tombol Putar Ulang jika Multi-product Pool */}
-                      {productPool.isPool && (
-                        <button
-                          type="button"
-                          onClick={() => triggerLuckySpin(productPool.items, awardedItemName)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            background: 'transparent',
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            color: 'rgba(255, 255, 255, 0.75)',
-                            padding: '6px 14px',
-                            borderRadius: '20px',
-                            fontSize: '0.76rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                        >
-                          <RotateCw size={13} /> Putar Ulang Animasi Undian
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>

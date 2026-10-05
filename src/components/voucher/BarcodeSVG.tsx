@@ -15,17 +15,14 @@ interface BarcodeSVGProps {
  * Mengubah string kode voucher menjadi pola bar vertikal hitam-putih
  * yang presisi dan estetis seperti barcode ritel fisik.
  */
-export function BarcodeSVG({
-  code,
-  width = '100%',
-  height = 54,
-  className = '',
-  showText = true,
-}: BarcodeSVGProps) {
-  const cleanCode = (code || 'LORONG-RASA').toUpperCase().replace(/[^A-Z0-9-]/g, '')
+export interface BarcodeBar {
+  width: number
+  isSpace: boolean
+}
 
-  // Hasilkan pola bar deterministik berdasarkan hash karakter
-  const bars: { width: number; isSpace: boolean }[] = []
+export function generateBarcodeBars(code: string): BarcodeBar[] {
+  const cleanCode = (code || 'LORONG-RASA').toUpperCase().replace(/[^A-Z0-9-]/g, '')
+  const bars: BarcodeBar[] = []
 
   // Guard bar di awal (101)
   bars.push({ width: 2, isSpace: false })
@@ -34,7 +31,6 @@ export function BarcodeSVG({
 
   for (let i = 0; i < cleanCode.length; i++) {
     const charCode = cleanCode.charCodeAt(i)
-    // Buat pola 4 bar per karakter
     const b1 = (charCode % 3) + 1
     const s1 = ((charCode >> 1) % 2) + 1
     const b2 = ((charCode >> 2) % 3) + 1
@@ -50,6 +46,19 @@ export function BarcodeSVG({
   bars.push({ width: 2, isSpace: false })
   bars.push({ width: 2, isSpace: true })
   bars.push({ width: 2, isSpace: false })
+
+  return bars
+}
+
+export function BarcodeSVG({
+  code,
+  width = '100%',
+  height = 54,
+  className = '',
+  showText = true,
+}: BarcodeSVGProps) {
+  const cleanCode = (code || 'LORONG-RASA').toUpperCase().replace(/[^A-Z0-9-]/g, '')
+  const bars = generateBarcodeBars(cleanCode)
 
   // Hitung total lebar viewBox
   const totalBarWidth = bars.reduce((acc, curr) => acc + curr.width, 0)

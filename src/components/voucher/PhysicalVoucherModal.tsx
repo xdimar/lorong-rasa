@@ -13,6 +13,7 @@ import {
   QrCode,
 } from 'lucide-react'
 import { PhysicalVoucherCard } from './PhysicalVoucherCard'
+import { generateBarcodeBars } from './BarcodeSVG'
 
 export interface PhysicalVoucherModalProps {
   isOpen: boolean
@@ -53,20 +54,26 @@ export function PhysicalVoucherModal({
   const shareToken = voucher.share_token || cleanCode
   const shareUrl = `${baseUrl}/voucher/${encodeURIComponent(shareToken)}`
 
-  // Tentukan ringkasan keuntungan yang singkat
-  let benefitText = ''
+  // Tentukan judul diskon & subjudul hadiah
+  let headlineValue = ''
+  let subHeadline = ''
+
   if (voucher.discount_type === 'percentage') {
-    benefitText = `Diskon ${voucher.discount_value}% OFF`
+    headlineValue = `${voucher.discount_value}% OFF`
+    subHeadline = 'Semua Menu Specialty Coffee & Kudapan'
   } else if (voucher.discount_type === 'fixed') {
-    benefitText = `Potongan Rp ${(voucher.discount_value / 1000).toFixed(0)}rb`
+    headlineValue = `Rp ${(voucher.discount_value / 1000).toFixed(0)}K OFF`
+    subHeadline = `Potongan langsung Rp ${voucher.discount_value.toLocaleString('id-ID')}`
   } else {
     const targetItem =
-      awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : voucher.product_name) || 'Menu Spesial'
-    benefitText = voucher.discount_value === 100 ? `Gratis 1x ${targetItem}` : `Diskon ${voucher.discount_value}% ${targetItem}`
+      awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : voucher.product_name) || 'Menu Pilihan'
+    headlineValue = voucher.discount_value === 100 ? 'GRATIS 100%' : `DISKON ${voucher.discount_value}%`
+    subHeadline = `Menu: ${targetItem}`
   }
 
+  const benefitText = `${headlineValue} (${subHeadline})`
+
   // Teks WhatsApp yang sangat ringkas & to-the-point
-  // (WhatsApp akan otomatis memunculkan preview gambar kartu voucher & barcode dari OpenGraph link)
   const handleShareWhatsApp = () => {
     const text =
       `🎟️ *VOUCHER LORONG RASA*\n` +
@@ -84,7 +91,7 @@ export function PhysicalVoucherModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Download gambar kartu voucher menggunakan HTML5 Canvas
+  // Download gambar kartu voucher berkualitas tinggi (Retina 900x1350) dengan QR Code & Barcode asli
   const handleDownloadImage = async () => {
     try {
       setIsGeneratingImg(true)
@@ -92,138 +99,339 @@ export function PhysicalVoucherModal({
       const ctx = canvas.getContext('2d')
       if (!ctx) return
 
-      const width = 800
-      const height = 1000
+      const width = 900
+      const height = 1350
       canvas.width = width
       canvas.height = height
 
-      // Background kartu
+      // Helper membuat jalur rounded rect
+      const drawRoundRect = (
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        r: number
+      ) => {
+        if (ctx.roundRect) {
+          ctx.beginPath()
+          ctx.roundRect(x, y, w, h, r)
+        } else {
+          ctx.beginPath()
+          ctx.moveTo(x + r, y)
+          ctx.lineTo(x + w - r, y)
+          ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+          ctx.lineTo(x + w, y + h - r)
+          ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+          ctx.lineTo(x + r, y + h)
+          ctx.quadraticCurveTo(x, y + h, x, y + h - r)
+          ctx.lineTo(x, y + r)
+          ctx.quadraticCurveTo(x, y, x + r, y)
+          ctx.closePath()
+        }
+      }
+
+      // Helper teks adaptif agar tidak meluap (auto-fit fontSize)
+      const drawFittedText = (
+        text: string,
+        centerX: number,
+        centerY: number,
+        maxW: number,
+        maxFontSize: number,
+        fontFamily: string,
+        fontWeight: string = 'bold'
+      ) => {
+        let size = maxFontSize
+        ctx.font = `${fontWeight} ${size}px ${fontFamily}`
+        while (ctx.measureText(text).width > maxW && size > 16) {
+          size -= 2
+          ctx.font = `${fontWeight} ${size}px ${fontFamily}`
+        }
+        ctx.fillText(text, centerX, centerY)
+        return size
+      }
+
+      // 1. Ambil QR Code SVG langsung dari kartu yang dirender di modal
+      let qrImg: HTMLImageElement | null = null
+      try {
+        const qrSvgEl = cardRef.current?.querySelector('.voucher-physical-qrcode-svg') as SVGElement | null
+        if (qrSvgEl) {
+          const svgData = new XMLSerializer().serializeToString(qrSvgEl)
+          const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+          const svgUrl = URL.createObjectURL(svgBlob)
+          const tempImg = new Image()
+          await new Promise<void>((resolve) => {
+            tempImg.onload = () => {
+              qrImg = tempImg
+              resolve()
+            }
+            tempImg.onerror = () => resolve()
+            tempImg.src = svgUrl
+          })
+          URL.revokeObjectURL(svgUrl)
+        }
+      } catch (e) {
+        console.warn('QR code capture notice:', e)
+      }
+
+      const cardMargin = 30
+      const cardX = cardMargin
+      const cardY = cardMargin
+      const cardW = width - cardMargin * 2
+      const cardH = height - cardMargin * 2
+      const cardR = 28
+      const headerH = 240
+      const notchY = cardY + headerH
+
+      // 2. Gambar dasar kartu dengan sudut melengkung
+      ctx.save()
+      drawRoundRect(cardX, cardY, cardW, cardH, cardR)
       ctx.fillStyle = '#faf7f2'
-      ctx.fillRect(0, 0, width, height)
+      ctx.fill()
+      ctx.clip()
 
-      // Header gelap mewah
-      const gradHeader = ctx.createLinearGradient(0, 0, width, 240)
-      gradHeader.addColorStop(0, '#1f130b')
-      gradHeader.addColorStop(0.5, '#3a2213')
-      gradHeader.addColorStop(1, '#2a180d')
+      // 3. Header Gelap Mewah (Gradient Espresso)
+      const gradHeader = ctx.createLinearGradient(cardX, cardY, cardX, cardY + headerH)
+      gradHeader.addColorStop(0, '#190e07')
+      gradHeader.addColorStop(0.5, '#331c0e')
+      gradHeader.addColorStop(1, '#221209')
       ctx.fillStyle = gradHeader
-      ctx.fillRect(0, 0, width, 240)
+      ctx.fillRect(cardX, cardY, cardW, headerH)
 
-      // Garis border emas di header
-      ctx.strokeStyle = '#d4a04a'
-      ctx.lineWidth = 3
-      ctx.strokeRect(20, 20, width - 40, 200)
+      // Aksen Glow Radial Emas
+      const gradGlow = ctx.createRadialGradient(
+        cardX + cardW - 50,
+        cardY + 50,
+        10,
+        cardX + cardW - 50,
+        cardY + 50,
+        180
+      )
+      gradGlow.addColorStop(0, 'rgba(212, 175, 55, 0.28)')
+      gradGlow.addColorStop(1, 'transparent')
+      ctx.fillStyle = gradGlow
+      ctx.fillRect(cardX, cardY, cardW, headerH)
 
-      // Teks Header
+      // Border ornamen dalam header
+      ctx.strokeStyle = 'rgba(212, 160, 74, 0.35)'
+      ctx.lineWidth = 2
+      ctx.strokeRect(cardX + 24, cardY + 24, cardW - 48, headerH - 48)
+
+      // Brand sub-header
       ctx.fillStyle = '#d4a04a'
-      ctx.font = 'bold 22px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('LORONG RASA WAJAK — SPECIALTY COFFEE', width / 2, 70)
+      ctx.font = 'bold 20px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('☕ LORONG RASA WAJAK — SPECIALTY COFFEE', cardX + 44, cardY + 70)
 
+      // Judul Kartu
       ctx.fillStyle = '#ffffff'
       ctx.font = 'bold 44px serif'
-      ctx.fillText('OFFICIAL VOUCHER CARD', width / 2, 130)
+      ctx.fillText('Official Voucher Card', cardX + 44, cardY + 130)
 
-      ctx.fillStyle = 'rgba(255,255,255,0.85)'
-      ctx.font = '20px sans-serif'
-      ctx.fillText('Verified In-Store & Online Promo Voucher', width / 2, 175)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'
+      ctx.font = '19px sans-serif'
+      ctx.fillText('Tiket Resmi Diskon & Promo Lorong Rasa', cardX + 44, cardY + 172)
 
-      // Garis putus-putus perforasi
+      // Badge Stamp "VERIFIED" di pojok kanan header
+      const stampX = cardX + cardW - 175
+      const stampY = cardY + 60
+      drawRoundRect(stampX, stampY, 130, 40, 20)
+      ctx.fillStyle = 'rgba(212, 160, 74, 0.2)'
+      ctx.fill()
       ctx.strokeStyle = '#d4a04a'
-      ctx.lineWidth = 4
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.fillStyle = '#fce4a6'
+      ctx.font = 'bold 16px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('★ VERIFIED', stampX + 65, stampY + 25)
+
+      ctx.restore()
+
+      // 4. Garis Perforasi Putus-putus
+      ctx.strokeStyle = '#d4a04a'
+      ctx.lineWidth = 3
       ctx.setLineDash([12, 10])
       ctx.beginPath()
-      ctx.moveTo(40, 240)
-      ctx.lineTo(width - 40, 240)
+      ctx.moveTo(cardX + 36, notchY)
+      ctx.lineTo(cardX + cardW - 36, notchY)
       ctx.stroke()
       ctx.setLineDash([])
 
-      // Perforasi lubang notch di kiri & kanan
-      ctx.fillStyle = '#120c08'
+      // 5. Lubang Gerigi Notch Kiri & Kanan (Potongan Tembus Pandang / Transparent Cutouts)
+      ctx.save()
+      ctx.globalCompositeOperation = 'destination-out'
       ctx.beginPath()
-      ctx.arc(0, 240, 30, 0, Math.PI * 2)
+      ctx.arc(cardX, notchY, 26, 0, Math.PI * 2)
       ctx.fill()
       ctx.beginPath()
-      ctx.arc(width, 240, 30, 0, Math.PI * 2)
+      ctx.arc(cardX + cardW, notchY, 26, 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
 
-      // Body: Headline Keuntungan
+      // 6. Border Luar Emas Mengelilingi Kartu
+      ctx.save()
+      drawRoundRect(cardX, cardY, cardW, cardH, cardR)
+      ctx.strokeStyle = 'rgba(212, 160, 74, 0.45)'
+      ctx.lineWidth = 3
+      ctx.stroke()
+      ctx.restore()
+
+      // 7. Bagian Keuntungan Voucher
       ctx.fillStyle = '#8c6b3e'
       ctx.font = 'bold 22px sans-serif'
       ctx.textAlign = 'center'
-      ctx.fillText('KEUNTUNGAN VOUCHER', width / 2, 310)
+      ctx.fillText('KEUNTUNGAN VOUCHER', width / 2, cardY + headerH + 68)
 
+      // Headline Nilai Diskon
       ctx.fillStyle = '#c96427'
-      ctx.font = 'bold 64px serif'
-      ctx.fillText(benefitText.toUpperCase(), width / 2, 385)
+      drawFittedText(headlineValue, width / 2, cardY + headerH + 144, cardW - 80, 74, 'serif')
 
-      // Box Stempel Kode Voucher
+      // Subheadline / Rincian Menu
+      ctx.fillStyle = '#3d2b1f'
+      drawFittedText(`🏷️ ${subHeadline}`, width / 2, cardY + headerH + 196, cardW - 90, 24, 'sans-serif')
+
+      // 8. Box Stempel Kode Voucher
+      const codeBoxY = cardY + headerH + 235
+      const codeBoxH = 110
+      const codeBoxW = cardW - 80
+      const codeBoxX = cardX + 40
+
+      drawRoundRect(codeBoxX, codeBoxY, codeBoxW, codeBoxH, 18)
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
       ctx.strokeStyle = '#c96427'
-      ctx.lineWidth = 4
+      ctx.lineWidth = 3
       ctx.setLineDash([10, 8])
-      ctx.strokeRect(100, 430, width - 200, 90)
+      ctx.stroke()
       ctx.setLineDash([])
 
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(102, 432, width - 204, 86)
+      ctx.fillStyle = '#888888'
+      ctx.font = 'bold 17px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('KODE VOUCHER', codeBoxX + 32, codeBoxY + 40)
 
       ctx.fillStyle = '#c96427'
-      ctx.font = 'bold 46px monospace'
-      ctx.fillText(cleanCode, width / 2, 492)
+      ctx.textAlign = 'left'
+      drawFittedText(cleanCode, codeBoxX + 32, codeBoxY + 86, codeBoxW - 200, 48, 'monospace')
 
-      // Barcode simulasi presisi
-      const barcodeY = 570
-      const barcodeH = 100
+      // Badge "VALID CODE"
+      const validBadgeW = 120
+      const validBadgeX = codeBoxX + codeBoxW - validBadgeW - 28
+      const validBadgeY = codeBoxY + 36
+      drawRoundRect(validBadgeX, validBadgeY, validBadgeW, 38, 8)
+      ctx.fillStyle = 'rgba(201, 100, 39, 0.12)'
+      ctx.fill()
+      ctx.fillStyle = '#c96427'
+      ctx.font = 'bold 16px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('VALID CODE', validBadgeX + validBadgeW / 2, validBadgeY + 24)
+
+      // 9. Box Panel Kasir: Barcode 1D + QR Code Side-by-Side
+      const validBoxY = codeBoxY + codeBoxH + 30
+      const validBoxH = 260
+      const validBoxW = cardW - 80
+      const validBoxX = cardX + 40
+
+      drawRoundRect(validBoxX, validBoxY, validBoxW, validBoxH, 20)
       ctx.fillStyle = '#ffffff'
-      ctx.fillRect(80, barcodeY - 15, width - 160, barcodeH + 50)
-      ctx.strokeStyle = '#e0d8cc'
-      ctx.lineWidth = 1
-      ctx.strokeRect(80, barcodeY - 15, width - 160, barcodeH + 50)
+      ctx.fill()
+      ctx.strokeStyle = '#e6ded1'
+      ctx.lineWidth = 2
+      ctx.stroke()
+
+      ctx.fillStyle = '#888888'
+      ctx.font = 'bold 16px sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillText('BARCODE PEMINDAI KASIR (1D)', validBoxX + 32, validBoxY + 36)
+
+      // Gambar Barcode 1D Presisi
+      const barcodeY = validBoxY + 54
+      const barcodeH = 95
+      const barcodeMaxW = validBoxW - (qrImg ? 260 : 64)
+      const bars = generateBarcodeBars(cleanCode)
+      const totalUnits = bars.reduce((sum, b) => sum + b.width, 0)
+      const unitW = barcodeMaxW / totalUnits
+      let bx = validBoxX + 32
 
       ctx.fillStyle = '#1a1412'
-      let bx = 120
-      const codeBars = cleanCode + '99812'
-      for (let i = 0; i < codeBars.length; i++) {
-        const c = codeBars.charCodeAt(i)
-        const w1 = ((c % 3) + 1) * 2.5
-        const s1 = (((c >> 1) % 2) + 1) * 2.5
-        const w2 = (((c >> 2) % 3) + 1) * 2.5
-        const s2 = (((c >> 3) % 2) + 1) * 2.5
-
-        ctx.fillRect(bx, barcodeY, w1, barcodeH)
-        bx += w1 + s1
-        ctx.fillRect(bx, barcodeY, w2, barcodeH)
-        bx += w2 + s2
+      for (const bar of bars) {
+        const bw = bar.width * unitW
+        if (!bar.isSpace) {
+          ctx.fillRect(bx, barcodeY, bw, barcodeH)
+        }
+        bx += bw
       }
 
       ctx.fillStyle = '#1a1412'
       ctx.font = 'bold 22px monospace'
-      ctx.fillText(`* ${cleanCode} *`, width / 2, barcodeY + barcodeH + 26)
+      ctx.textAlign = 'center'
+      ctx.fillText(`* ${cleanCode} *`, validBoxX + 32 + barcodeMaxW / 2, barcodeY + barcodeH + 34)
 
-      // Instruksi Kasir & Ketentuan
+      // Panel QR Code Kasir
+      if (qrImg) {
+        const sepX = validBoxX + barcodeMaxW + 55
+        ctx.strokeStyle = '#ebe4d8'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(sepX, validBoxY + 30)
+        ctx.lineTo(sepX, validBoxY + validBoxH - 30)
+        ctx.stroke()
+
+        const qrBoxX = sepX + 25
+        const qrBoxY = validBoxY + 36
+        const qrSize = 145
+
+        drawRoundRect(qrBoxX, qrBoxY, qrSize, qrSize, 12)
+        ctx.fillStyle = '#ffffff'
+        ctx.fill()
+        ctx.strokeStyle = '#e6ded1'
+        ctx.lineWidth = 1
+        ctx.stroke()
+
+        ctx.drawImage(qrImg, qrBoxX + 8, qrBoxY + 8, qrSize - 16, qrSize - 16)
+
+        ctx.fillStyle = '#555555'
+        ctx.font = 'bold 15px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('PINDAI QR', qrBoxX + qrSize / 2, qrBoxY + qrSize + 24)
+      }
+
+      // 10. Informasi Masa Berlaku & Ketentuan
+      const termsY = validBoxY + validBoxH + 46
       ctx.fillStyle = '#4a3b32'
-      ctx.font = 'bold 22px sans-serif'
-      ctx.fillText('TUNJUKKAN KODE/BARCODE INI KE KASIR LORONG RASA', width / 2, 790)
+      ctx.font = 'bold 20px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('TUNJUKKAN KODE ATAU BARCODE INI KE KASIR LORONG RASA', width / 2, termsY)
 
       ctx.fillStyle = '#7a6e65'
       ctx.font = '18px sans-serif'
       const expiryText = voucher.expires_at
-        ? `Berlaku hingga: ${new Date(voucher.expires_at).toLocaleDateString('id-ID', {
+        ? `⏳ Berlaku hingga: ${new Date(voucher.expires_at).toLocaleDateString('id-ID', {
             day: 'numeric',
             month: 'long',
             year: 'numeric',
           })}`
-        : 'Berlaku Selamanya'
-      ctx.fillText(expiryText, width / 2, 825)
+        : '⏳ Berlaku Selamanya'
+      const minOrderText = (voucher.min_order || 0) > 0
+        ? ` • Min. belanja: Rp ${(voucher.min_order || 0).toLocaleString('id-ID')}`
+        : ' • Tanpa minimum belanja'
+      ctx.fillText(`${expiryText}${minOrderText}`, width / 2, termsY + 32)
 
-      // Footer strip
-      ctx.fillStyle = '#e8dfd3'
-      ctx.fillRect(0, 920, width, 80)
+      // 11. Footer Strip Mewah di bagian bawah kartu
+      ctx.save()
+      const footerH = 90
+      const footerY = cardY + cardH - footerH
+      drawRoundRect(cardX, footerY, cardW, footerH, 0)
+      ctx.fillStyle = '#ece3d5'
+      ctx.fill()
+
       ctx.fillStyle = '#3a2b22'
       ctx.font = 'bold 20px sans-serif'
-      ctx.fillText('Klaim & Pesan Online: ' + shareUrl.replace(/^https?:\/\//, ''), width / 2, 968)
+      ctx.textAlign = 'center'
+      ctx.fillText(`🌐 Klaim & Pesan Online: ${shareUrl.replace(/^https?:\/\//, '')}`, width / 2, footerY + 52)
+      ctx.restore()
 
-      // Konversi ke file blob dan trigger download
+      // 12. Konversi ke file PNG dan trigger download
       canvas.toBlob((blob) => {
         if (!blob) return
         const url = URL.createObjectURL(blob)

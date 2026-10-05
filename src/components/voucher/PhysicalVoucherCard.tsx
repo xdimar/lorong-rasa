@@ -357,6 +357,7 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
                 }}
               >
                 <QRCodeSVG
+                  className="voucher-physical-qrcode-svg"
                   value={qrValue}
                   size={compact ? 56 : 64}
                   bgColor="#ffffff"
