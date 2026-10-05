@@ -257,6 +257,13 @@ export default function CheckoutPage() {
           const drawn = getOrDrawAwardedProduct(data.code, data.product_name, cartItemNames)
           if (drawn) {
             effectiveProductName = drawn
+            const matchedCartItem = items.find(
+              (i) =>
+                i.name.toLowerCase() === drawn.toLowerCase() ||
+                i.name.toLowerCase().includes(drawn.toLowerCase()) ||
+                drawn.toLowerCase().includes(i.name.toLowerCase())
+            )
+            effectiveProductMenuItemId = matchedCartItem ? matchedCartItem.id : null
           }
         }
       }

@@ -25,6 +25,7 @@ import {
   type LoyaltyReward,
   type LoyaltyTransaction,
 } from '@/lib/loyalty'
+import { getOrDrawAwardedProduct } from '@/lib/voucher-draw'
 
 interface Profile {
   id: string
@@ -1121,19 +1122,31 @@ export default function ProfilePage() {
                               }} />
                               <div style={{ padding: '1.25rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem' }}>
-                                  <div style={{
-                                    background: isUsed
-                                      ? '#666'
-                                      : 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
-                                    color: 'white',
-                                    borderRadius: '10px',
-                                    padding: '6px 14px',
-                                    fontSize: '1rem',
-                                    fontWeight: 700,
-                                    fontFamily: 'var(--font-playfair)',
-                                  }}>
-                                    {v ? (v.discount_type === 'percentage' ? `${v.discount_value}% OFF` : `Rp ${v.discount_value.toLocaleString('id-ID')}`) : uv.voucher_code}
-                                  </div>
+                                  {(() => {
+                                    const awardedItem = v?.discount_type === 'product' ? getOrDrawAwardedProduct(uv.voucher_code, v?.product_name) : null
+                                    return (
+                                      <div>
+                                        <div style={{
+                                          background: isUsed
+                                            ? '#666'
+                                            : 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+                                          color: 'white',
+                                          borderRadius: '10px',
+                                          padding: '6px 14px',
+                                          fontSize: '1rem',
+                                          fontWeight: 700,
+                                          fontFamily: 'var(--font-playfair)',
+                                        }}>
+                                          {v ? (v.discount_type === 'percentage' ? `${v.discount_value}% OFF` : v.discount_type === 'product' ? (v.discount_value === 100 ? 'GRATIS 1 MENU' : `DISKON ${v.discount_value}%`) : `Rp ${v.discount_value.toLocaleString('id-ID')}`) : uv.voucher_code}
+                                        </div>
+                                        {awardedItem && (
+                                          <div style={{ fontSize: '0.78rem', color: 'var(--color-primary)', fontWeight: 700, marginTop: '4px' }}>
+                                            🎁 Menu Hadiah: {awardedItem}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
                                   
                                   {isUsed ? (
                                     <span style={{ fontSize: '0.75rem', color: '#888', background: 'var(--color-bg-secondary)', padding: '4px 10px', borderRadius: '50px', fontWeight: 600, fontFamily: 'var(--font-inter)' }}>
@@ -1674,32 +1687,65 @@ export default function ProfilePage() {
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--color-primary-glow)', color: 'var(--color-primary)', padding: '4px 12px', borderRadius: '50px', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.75rem', fontFamily: 'var(--font-inter)' }}>
                 <QrCode size={13} /> QR Penukaran Kasir
               </div>
-              <h3 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-playfair)', marginBottom: '0.4rem' }}>
-                {offlineQrModal.vouchers
-                  ? (offlineQrModal.vouchers.discount_type === 'percentage' ? `Diskon ${offlineQrModal.vouchers.discount_value}%` : `Hemat Rp ${offlineQrModal.vouchers.discount_value.toLocaleString('id-ID')}`)
-                  : offlineQrModal.voucher_code}
-              </h3>
-              <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-                Tunjukkan QR code ini kepada <strong>Kasir Lorong Rasa</strong> saat bertransaksi langsung di kedai.
-              </p>
+              {(() => {
+                const v = offlineQrModal.vouchers
+                const awardedItem = v?.discount_type === 'product'
+                  ? getOrDrawAwardedProduct(offlineQrModal.voucher_code, v?.product_name)
+                  : null
+                const qrValue = `VOUCHER_CLAIM:${offlineQrModal.id}|${offlineQrModal.voucher_code}${awardedItem ? `|${awardedItem}` : ''}`
 
-              {/* QR Code Container */}
-              <div style={{
-                background: 'white',
-                borderRadius: '16px',
-                padding: '1.25rem',
-                display: 'inline-block',
-                marginBottom: '1.25rem',
-                boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
-              }}>
-                <QRCodeSVG
-                  value={`VOUCHER_CLAIM:${offlineQrModal.id}|${offlineQrModal.voucher_code}|${profile.id}`}
-                  size={190}
-                  bgColor="#ffffff"
-                  fgColor="#1a0f00"
-                  level="H"
-                />
-              </div>
+                return (
+                  <>
+                    <h3 style={{ fontSize: '1.25rem', fontFamily: 'var(--font-playfair)', marginBottom: '0.4rem' }}>
+                      {v
+                        ? (v.discount_type === 'percentage'
+                            ? `Diskon ${v.discount_value}%`
+                            : v.discount_type === 'product'
+                            ? (v.discount_value === 100 ? `Gratis 1x ${awardedItem || v.product_name || 'Menu Pilihan'}` : `Diskon ${v.discount_value}% ${awardedItem || v.product_name || 'Menu Pilihan'}`)
+                            : `Hemat Rp ${v.discount_value.toLocaleString('id-ID')}`)
+                        : offlineQrModal.voucher_code}
+                    </h3>
+                    {awardedItem && (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'rgba(212, 160, 74, 0.15)',
+                        border: '1px solid rgba(212, 160, 74, 0.3)',
+                        borderRadius: '8px',
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        color: 'var(--color-primary)',
+                        marginBottom: '0.75rem',
+                      }}>
+                        <Coffee size={14} /> Menu Hadiah: {awardedItem}
+                      </div>
+                    )}
+                    <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                      Tunjukkan QR code ini kepada <strong>Kasir Lorong Rasa</strong> saat bertransaksi langsung di kedai.
+                    </p>
+
+                    {/* QR Code Container */}
+                    <div style={{
+                      background: 'white',
+                      borderRadius: '16px',
+                      padding: '1.25rem',
+                      display: 'inline-block',
+                      marginBottom: '1.25rem',
+                      boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+                    }}>
+                      <QRCodeSVG
+                        value={qrValue}
+                        size={190}
+                        bgColor="#ffffff"
+                        fgColor="#1a0f00"
+                        level="H"
+                      />
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* Code Box */}
               <div style={{

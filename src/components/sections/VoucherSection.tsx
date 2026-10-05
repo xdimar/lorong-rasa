@@ -2163,7 +2163,8 @@ export function VoucherSection() {
                         {(() => {
                           const v = activeModal.voucher
                           const tokenOrCode = v.share_token || v.code
-                          const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}`
+                          const targetGift = v.discount_type === 'product' ? (v.product_name || '') : ''
+                          const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}${targetGift ? `?item=${encodeURIComponent(targetGift)}` : ''}`
                           let promoDesc = ''
                           if (v.discount_type === 'product') {
                             promoDesc = v.discount_value === 100
@@ -2256,8 +2257,10 @@ export function VoucherSection() {
                       }}
                     >
                       <QRCodeSVG
-                        value={`VOUCHER:${activeModal.voucher.code}|TYPE:${activeModal.voucher.discount_type}|VAL:${activeModal.voucher.discount_value}|MIN:${activeModal.voucher.min_order}${
-                          activeModal.voucher.product_name ? `|PRODUCT:${activeModal.voucher.product_name}` : ''
+                        value={`VOUCHER:${activeModal.voucher.code}${
+                          activeModal.voucher.discount_type === 'product' && activeModal.voucher.product_name
+                            ? `|${activeModal.voucher.product_name}`
+                            : ''
                         }`}
                         size={160}
                         bgColor="#ffffff"
@@ -2345,7 +2348,8 @@ export function VoucherSection() {
                       {(() => {
                         const v = activeModal.voucher
                         const tokenOrCode = v.share_token || v.code
-                        const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}`
+                        const targetGift = v.discount_type === 'product' ? (v.product_name || '') : ''
+                        const claimUrl = `${siteUrl}/voucher/${encodeURIComponent(tokenOrCode)}${targetGift ? `?item=${encodeURIComponent(targetGift)}` : ''}`
                         let promoDesc = ''
                         if (v.discount_type === 'product') {
                           promoDesc = v.discount_value === 100

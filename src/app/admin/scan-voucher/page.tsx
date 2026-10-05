@@ -241,6 +241,8 @@ export default function ScanVoucherPage() {
         return
       }
 
+      const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+
       let claimId: string | null = null
       let code: string | null = null
       let awardedProductFromScan: string | null = null
@@ -252,6 +254,8 @@ export default function ScanVoucherPage() {
           const parsed = new URL(text.startsWith('http') ? text : `http://localhost${text.startsWith('/') ? '' : '/'}${text}`)
           const queryParam = parsed.searchParams.get('code') || parsed.searchParams.get('token') || parsed.searchParams.get('voucher')
           const itemParam = parsed.searchParams.get('item') || parsed.searchParams.get('product')
+          const claimParam = parsed.searchParams.get('claim_id')
+          if (claimParam && isUuid(claimParam)) claimId = claimParam
           if (itemParam) awardedProductFromScan = decodeURIComponent(itemParam).trim()
 
           if (queryParam) {
@@ -267,29 +271,51 @@ export default function ScanVoucherPage() {
           if (match && match[1]) {
             rawIdentifier = decodeURIComponent(match[1]).trim()
           }
+          const itemMatch = text.match(/[?&](?:item|product)=([^&#]+)/)
+          if (itemMatch && itemMatch[1]) {
+            awardedProductFromScan = decodeURIComponent(itemMatch[1]).trim()
+          }
         }
       } else if (text.startsWith('VOUCHER_CLAIM:')) {
         const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
         claimId = parts[0]?.trim() || null
         code = parts[1]?.trim() || null
-        awardedProductFromScan = parts[2]?.trim() || null
+        const candidateGift = parts[2]?.trim() || null
+        if (candidateGift && !isUuid(candidateGift) && !candidateGift.startsWith('TYPE:')) {
+          awardedProductFromScan = candidateGift
+        }
       } else if (text.startsWith('VOUCHER:')) {
         const parts = text.replace('VOUCHER:', '').split('|')
         code = parts[0]?.trim() || null
-        awardedProductFromScan = parts[1]?.trim() || null
-      } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+        const prodPart = parts.find((p) => p.startsWith('PRODUCT:'))
+        if (prodPart) {
+          awardedProductFromScan = prodPart.replace('PRODUCT:', '').trim()
+        } else if (parts[1] && !parts[1].startsWith('TYPE:') && !isUuid(parts[1])) {
+          awardedProductFromScan = parts[1].trim() || null
+        }
+      } else if (isUuid(text)) {
         claimId = text
       } else {
         if (text.includes('|')) {
           const parts = text.split('|')
           code = parts[0]?.trim() || null
-          awardedProductFromScan = parts[1]?.trim() || null
+          const candidate = parts[1]?.trim() || null
+          if (candidate && !candidate.startsWith('TYPE:') && !isUuid(candidate)) {
+            awardedProductFromScan = candidate
+          }
         } else {
           code = text.toUpperCase()
         }
       }
 
-      const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+      // Bersihkan awardedProductFromScan jika format mengandung PRODUCT: atau UUID
+      if (awardedProductFromScan) {
+        if (awardedProductFromScan.startsWith('PRODUCT:')) {
+          awardedProductFromScan = awardedProductFromScan.replace('PRODUCT:', '').trim()
+        } else if (isUuid(awardedProductFromScan) || awardedProductFromScan.startsWith('TYPE:')) {
+          awardedProductFromScan = null
+        }
+      }
 
       // Jika belum ada code atau claimId, manfaatkan rawIdentifier
       if (!claimId && !code && rawIdentifier) {

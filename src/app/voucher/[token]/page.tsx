@@ -264,12 +264,21 @@ function VoucherDetailContent({ token }: { token: string }) {
         if (foundVoucher.discount_type === 'product' && foundVoucher.product_name) {
           const pool = parseProductPool(foundVoucher.product_name)
           if (pool.isPool) {
-            initialAwarded = getOrDrawAwardedProduct(foundVoucher.code, foundVoucher.product_name)
+            // Cek apakah ada query param ?item= atau ?product= dari barcode / link share
+            let itemFromUrl: string | null = null
+            if (typeof window !== 'undefined') {
+              const urlParams = new URLSearchParams(window.location.search)
+              const p = urlParams.get('item') || urlParams.get('product')
+              if (p) itemFromUrl = decodeURIComponent(p).trim()
+            }
+
+            initialAwarded = getOrDrawAwardedProduct(foundVoucher.code, foundVoucher.product_name, itemFromUrl)
             setAwardedItemName(initialAwarded)
-            // Cek apakah sudah pernah reveal di session ini
+
+            // Cek apakah sudah pernah reveal di session ini atau didapatkan via URL
             const sessionKey = `lorong_revealed_${foundVoucher.code}`
             const alreadySeen = typeof window !== 'undefined' ? sessionStorage.getItem(sessionKey) : null
-            if (alreadySeen) {
+            if (alreadySeen || itemFromUrl) {
               setHasRevealed(true)
             } else {
               // Otomatis jalankan animasi reveal seru pada kunjungan pertama!
@@ -420,6 +429,12 @@ function VoucherDetailContent({ token }: { token: string }) {
         if (voucher) {
           try {
             sessionStorage.setItem(`lorong_revealed_${voucher.code}`, '1')
+            localStorage.setItem(`lorong_lucky_product_${voucher.code.trim().toUpperCase()}`, finalTarget)
+            if (typeof window !== 'undefined') {
+              const u = new URL(window.location.href)
+              u.searchParams.set('item', finalTarget)
+              window.history.replaceState({}, '', u.toString())
+            }
           } catch {}
         }
       }

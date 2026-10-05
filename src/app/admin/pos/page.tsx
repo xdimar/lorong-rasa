@@ -129,6 +129,7 @@ export default function CashierPOSPage() {
     setVoucherCodeInput(cleanCode)
     setVoucherError('')
 
+    const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
     const currentMenuList = menuList && menuList.length > 0 ? menuList : items
 
     try {
@@ -152,9 +153,44 @@ export default function CashierPOSPage() {
       }
 
       if (!data) {
+        // Fallback: cari berdasarkan share_token atau ID voucher
+        const { data: byToken } = await supabase
+          .from('vouchers')
+          .select('*')
+          .eq('share_token', cleanCode)
+          .maybeSingle()
+
+        if (byToken) {
+          data = byToken
+        } else if (isUuid(cleanCode)) {
+          const { data: byId } = await supabase
+            .from('vouchers')
+            .select('*')
+            .eq('id', cleanCode)
+            .maybeSingle()
+          if (byId) data = byId
+        }
+      }
+
+      if (!data) {
         posSound.playWarning()
         setVoucherError(`Kode voucher "${cleanCode}" tidak ditemukan.`)
         return
+      }
+
+      // Validasi status klaim member jika claimId disertakan
+      if (claimId && isUuid(claimId)) {
+        const { data: claimRecord } = await supabase
+          .from('user_vouchers')
+          .select('status, used_at')
+          .eq('id', claimId)
+          .maybeSingle()
+
+        if (claimRecord && claimRecord.status === 'used') {
+          posSound.playWarning()
+          setVoucherError(`⚠️ Voucher klaim ini sudah pernah digunakan pada ${claimRecord.used_at ? new Date(claimRecord.used_at).toLocaleString('id-ID') : 'transaksi sebelumnya'}.`)
+          return
+        }
       }
 
       if (!data.is_active) {
@@ -179,17 +215,24 @@ export default function CashierPOSPage() {
       // === TIPE PRODUK ===
       if (data.discount_type === 'product') {
         let targetItemName = rawItem ? decodeURIComponent(rawItem).trim() : null
+
+        // Bersihkan targetItemName jika berisi UUID atau metadata awalan
+        if (targetItemName) {
+          if (targetItemName.startsWith('PRODUCT:')) {
+            targetItemName = targetItemName.replace('PRODUCT:', '').trim()
+          } else if (isUuid(targetItemName) || targetItemName.startsWith('TYPE:')) {
+            targetItemName = null
+          }
+        }
+
         if (!targetItemName && data.product_name) {
           targetItemName = getOrDrawAwardedProduct(data.code, data.product_name) || data.product_name
         }
 
         let foundMenu: MenuItem | undefined
 
-        if (data.product_menu_item_id) {
-          foundMenu = currentMenuList.find((m) => m.id === data.product_menu_item_id)
-        }
-
-        if (!foundMenu && targetItemName) {
+        // PRIORITAS 1: Menu hadiah spesifik yang dimenangkan atau didapatkan oleh user
+        if (targetItemName) {
           const targetLower = targetItemName.toLowerCase()
           foundMenu = currentMenuList.find((m) => m.name.toLowerCase() === targetLower)
           if (!foundMenu) {
@@ -199,24 +242,31 @@ export default function CashierPOSPage() {
           }
         }
 
+        // PRIORITAS 2: Jika tidak ada target nama spesifik, gunakan product_menu_item_id voucher
+        if (!foundMenu && data.product_menu_item_id) {
+          foundMenu = currentMenuList.find((m) => m.id === data.product_menu_item_id)
+        }
+
+        // PRIORITAS 3: Cari dari opsi pool produk (data.product_name)
         if (!foundMenu && data.product_name) {
-          const poolItems = data.product_name.split(',').map((s: string) => s.trim().toLowerCase())
+          const poolItems = data.product_name.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
           foundMenu = currentMenuList.find((m) =>
-            poolItems.some((p: string) => m.name.toLowerCase().includes(p) || p.includes(m.name.toLowerCase()))
+            poolItems.some((p: string) => m.name.toLowerCase() === p || m.name.toLowerCase().includes(p) || p.includes(m.name.toLowerCase()))
           )
         }
 
         if (foundMenu) {
-          // Masukkan item hadiah ke keranjang jika belum ada
+          // Masukkan item hadiah ke keranjang jika belum ada (ganti hadiah lama voucher ini bila ada)
           setCart((prev) => {
-            const exists = prev.find((c) => c.menuItem.id === foundMenu!.id)
-            if (exists) return prev
+            const filtered = prev.filter((c) => !c.notes?.includes(`🎁 Hadiah Voucher ${data.code}`))
+            const exists = filtered.find((c) => c.menuItem.id === foundMenu!.id)
+            if (exists) return filtered
             return [
-              ...prev,
+              ...filtered,
               {
                 menuItem: foundMenu!,
                 quantity: 1,
-                notes: `🎁 Hadiah Voucher ${data.code}`,
+                notes: `🎁 Hadiah Voucher ${data.code} (${foundMenu!.name})`,
               },
             ]
           })
@@ -319,6 +369,8 @@ export default function CashierPOSPage() {
     const text = rawText.trim()
     if (!text) return
 
+    const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+
     let claimId: string | null = null
     let code: string | null = null
     let awardedProduct: string | null = null
@@ -328,6 +380,8 @@ export default function CashierPOSPage() {
         const parsed = new URL(text.startsWith('http') ? text : `http://localhost${text.startsWith('/') ? '' : '/'}${text}`)
         const queryParam = parsed.searchParams.get('code') || parsed.searchParams.get('token') || parsed.searchParams.get('voucher')
         const itemParam = parsed.searchParams.get('item') || parsed.searchParams.get('product')
+        const claimParam = parsed.searchParams.get('claim_id')
+        if (claimParam && isUuid(claimParam)) claimId = claimParam
         if (itemParam) awardedProduct = decodeURIComponent(itemParam).trim()
         if (queryParam) {
           code = queryParam.trim().toUpperCase()
@@ -342,26 +396,50 @@ export default function CashierPOSPage() {
         if (match && match[1]) {
           code = decodeURIComponent(match[1]).trim().toUpperCase()
         }
+        const itemMatch = text.match(/[?&](?:item|product)=([^&#]+)/)
+        if (itemMatch && itemMatch[1]) {
+          awardedProduct = decodeURIComponent(itemMatch[1]).trim()
+        }
       }
     } else if (text.startsWith('VOUCHER_CLAIM:')) {
       const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
       claimId = parts[0]?.trim() || null
       code = parts[1]?.trim()?.toUpperCase() || null
-      awardedProduct = parts[2]?.trim() || null
+      const candidateGift = parts[2]?.trim() || null
+      if (candidateGift && !isUuid(candidateGift) && !candidateGift.startsWith('TYPE:')) {
+        awardedProduct = candidateGift
+      }
     } else if (text.startsWith('VOUCHER:')) {
       const parts = text.replace('VOUCHER:', '').split('|')
       code = parts[0]?.trim()?.toUpperCase() || null
-      awardedProduct = parts[1]?.trim() || null
-    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+      const prodPart = parts.find((p) => p.startsWith('PRODUCT:'))
+      if (prodPart) {
+        awardedProduct = prodPart.replace('PRODUCT:', '').trim()
+      } else if (parts[1] && !parts[1].startsWith('TYPE:') && !isUuid(parts[1])) {
+        awardedProduct = parts[1].trim() || null
+      }
+    } else if (isUuid(text)) {
       claimId = text
       code = text
     } else {
       if (text.includes('|')) {
         const parts = text.split('|')
         code = parts[0]?.trim()?.toUpperCase() || null
-        awardedProduct = parts[1]?.trim() || null
+        const candidate = parts[1]?.trim() || null
+        if (candidate && !candidate.startsWith('TYPE:') && !isUuid(candidate)) {
+          awardedProduct = candidate
+        }
       } else {
         code = text.toUpperCase()
+      }
+    }
+
+    // Bersihkan awardedProduct jika berformat PRODUCT: atau UUID
+    if (awardedProduct) {
+      if (awardedProduct.startsWith('PRODUCT:')) {
+        awardedProduct = awardedProduct.replace('PRODUCT:', '').trim()
+      } else if (isUuid(awardedProduct) || awardedProduct.startsWith('TYPE:')) {
+        awardedProduct = null
       }
     }
 
