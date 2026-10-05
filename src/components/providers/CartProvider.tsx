@@ -129,9 +129,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (voucher.discount_type === 'percentage') {
       val = Math.round((subtotal * voucher.discount_value) / 100)
     } else if (voucher.discount_type === 'product') {
+      const allowedNames = voucher.product_name
+        ? voucher.product_name.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        : []
       const item = items.find(
-        i => (voucher.product_menu_item_id && i.id === voucher.product_menu_item_id) ||
-             (voucher.product_name && i.name.toLowerCase() === voucher.product_name.toLowerCase())
+        i =>
+          (voucher.product_menu_item_id && i.id === voucher.product_menu_item_id) ||
+          (allowedNames.length > 0 &&
+            allowedNames.some(
+              name => i.name.toLowerCase() === name || i.name.toLowerCase().includes(name)
+            ))
       )
       if (item) {
         val = Math.round((item.price * voucher.discount_value) / 100)

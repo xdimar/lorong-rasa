@@ -29,6 +29,7 @@ import { useCart, AppliedVoucher } from '@/components/providers/CartProvider'
 import { useToast } from '@/components/providers/ToastProvider'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
+import { parseProductPool, getOrDrawAwardedProduct } from '@/lib/voucher-draw'
 
 interface VoucherRecord {
   id: string
@@ -262,17 +263,26 @@ function VoucherDetailContent({ token }: { token: string }) {
   const handleApplyToCartAndOrder = () => {
     if (!voucher) return
 
+    const luckyProduct =
+      voucher.discount_type === 'product' && voucher.product_name
+        ? getOrDrawAwardedProduct(voucher.code, voucher.product_name)
+        : null
+
     const applied: AppliedVoucher = {
       code: voucher.code,
       discount_type: voucher.discount_type,
       discount_value: voucher.discount_value,
       min_order: voucher.min_order,
-      product_name: voucher.product_name,
+      product_name: luckyProduct || voucher.product_name,
       product_menu_item_id: voucher.product_menu_item_id,
     }
 
     applyVoucher(applied, true)
-    showToast(`Voucher ${voucher.code} berhasil dipasang ke pesanan Anda!`, 'success')
+    if (luckyProduct) {
+      showToast(`🎉 Voucher ${voucher.code} dipasang untuk menu ${luckyProduct}!`, 'success')
+    } else {
+      showToast(`Voucher ${voucher.code} berhasil dipasang ke pesanan Anda!`, 'success')
+    }
 
     // Simpan ke localStorage agar tidak hilang saat reload
     try {
@@ -304,11 +314,16 @@ function VoucherDetailContent({ token }: { token: string }) {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
 
+  const productPool = voucher ? parseProductPool(voucher.product_name) : { isPool: false, items: [], count: 0 }
+  const luckyProduct = voucher && productPool.isPool ? getOrDrawAwardedProduct(voucher.code, voucher.product_name) : null
+
   const discountLabel = voucher
     ? voucher.discount_type === 'percentage'
       ? `${voucher.discount_value}% OFF`
       : voucher.discount_type === 'fixed'
       ? `POTONGAN Rp ${voucher.discount_value.toLocaleString('id-ID')}`
+      : productPool.isPool
+      ? `${voucher.discount_value}% — 🎲 Hadiah: ${luckyProduct || 'Acak 1 Menu'}`
       : `${voucher.discount_value}% — ${voucher.product_name || 'Menu Spesial'}`
     : ''
 
@@ -584,26 +599,51 @@ function VoucherDetailContent({ token }: { token: string }) {
                           : `${voucher.discount_value}% OFF`}
                       </div>
 
-                      {voucher.product_name && (
-                        <div
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            background: 'rgba(201, 100, 39, 0.1)',
-                            border: '1px solid rgba(201, 100, 39, 0.25)',
-                            borderRadius: '6px',
-                            padding: '3px 8px',
-                            fontSize: '0.78rem',
-                            color: 'var(--color-primary)',
-                            fontWeight: 600,
-                            marginTop: '8px',
-                          }}
-                        >
-                          <Coffee size={13} />
-                          Khusus Menu: {voucher.product_name}
-                        </div>
-                      )}
+                      {voucher.product_name && (() => {
+                        return productPool.isPool ? (
+                          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                background: 'rgba(147, 51, 234, 0.12)',
+                                border: '1px solid rgba(147, 51, 234, 0.3)',
+                                borderRadius: '6px',
+                                padding: '4px 10px',
+                                fontSize: '0.8rem',
+                                color: '#9333ea',
+                                fontWeight: 700,
+                                width: 'fit-content',
+                              }}
+                            >
+                              <span>🎲</span> Hadiah Acak Terpilih: <strong>{luckyProduct}</strong>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                              Diundi secara acak dari pilihan: {productPool.items.join(', ')}
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              background: 'rgba(201, 100, 39, 0.1)',
+                              border: '1px solid rgba(201, 100, 39, 0.25)',
+                              borderRadius: '6px',
+                              padding: '3px 8px',
+                              fontSize: '0.78rem',
+                              color: 'var(--color-primary)',
+                              fontWeight: 600,
+                              marginTop: '8px',
+                            }}
+                          >
+                            <Coffee size={13} />
+                            Khusus Menu: {voucher.product_name}
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* QR Code thumbnail for barista */}

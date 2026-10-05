@@ -29,6 +29,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
 import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/components/providers/CartProvider'
+import { parseProductPool, getOrDrawAwardedProduct } from '@/lib/voucher-draw'
 
 // Synthesize realistic paper tear sound via Web Audio API
 function playTicketTearSound() {
@@ -184,6 +185,9 @@ export function VoucherSection() {
     voucher: Voucher
     mode: 'claimed' | 'qr'
     savedToAccount: boolean
+    isLuckyDraw?: boolean
+    luckyPoolCount?: number
+    luckyPoolItems?: string[]
   } | null>(null)
   const [modalTab, setModalTab] = useState<'voucher' | 'qr'>('voucher')
 
@@ -205,21 +209,47 @@ export function VoucherSection() {
     playTicketTearSound()
     triggerTicketHaptic()
 
+    // 0. Undi produk acak jika voucher produk memiliki beberapa pilihan
+    let effectiveVoucher = voucher
+    let isLuckyDraw = false
+    let luckyPoolCount = 0
+    let luckyPoolItems: string[] = []
+
+    if (voucher.discount_type === 'product' && voucher.product_name) {
+      const pool = parseProductPool(voucher.product_name)
+      if (pool.isPool) {
+        isLuckyDraw = true
+        luckyPoolCount = pool.count
+        luckyPoolItems = pool.items
+        const drawn = getOrDrawAwardedProduct(voucher.code, voucher.product_name)
+        if (drawn) {
+          const matchedItem = menuItems.find(
+            (m) => m.name.toLowerCase() === drawn.toLowerCase()
+          )
+          effectiveVoucher = {
+            ...voucher,
+            product_name: drawn,
+            product_menu_item_id: matchedItem ? matchedItem.id : null,
+          }
+        }
+      }
+    }
+
     // 1. Copy code to clipboard immediately
     try {
       await navigator.clipboard.writeText(voucher.code)
       setCopiedCode(voucher.code)
     } catch {}
 
-    // 2. Pre-apply voucher to cart immediately
+    // 2. Pre-apply voucher to cart immediately (menggunakan menu hasil undian acak)
     applyVoucher(
       {
-        code: voucher.code,
-        discount_type: voucher.discount_type,
-        discount_value: voucher.discount_value,
-        min_order: voucher.min_order,
-        product_name: voucher.product_name,
-        product_menu_item_id: voucher.product_menu_item_id,
+        code: effectiveVoucher.code,
+        discount_type: effectiveVoucher.discount_type,
+        discount_value: effectiveVoucher.discount_value,
+        min_order: effectiveVoucher.min_order,
+        product_name: effectiveVoucher.product_name,
+        product_menu_item_id: effectiveVoucher.product_menu_item_id,
       },
       true
     )
@@ -277,20 +307,51 @@ export function VoucherSection() {
       playSuccessChime()
       setModalTab('voucher')
       setActiveModal({
-        voucher,
+        voucher: effectiveVoucher,
         mode: 'claimed',
         savedToAccount,
+        isLuckyDraw,
+        luckyPoolCount,
+        luckyPoolItems,
       })
       setIsTearing(false)
     }, 900)
   }
 
   const handleOpenQRModal = (voucher: Voucher) => {
+    let effectiveVoucher = voucher
+    let isLuckyDraw = false
+    let luckyPoolCount = 0
+    let luckyPoolItems: string[] = []
+
+    if (voucher.discount_type === 'product' && voucher.product_name) {
+      const pool = parseProductPool(voucher.product_name)
+      if (pool.isPool) {
+        isLuckyDraw = true
+        luckyPoolCount = pool.count
+        luckyPoolItems = pool.items
+        const drawn = getOrDrawAwardedProduct(voucher.code, voucher.product_name)
+        if (drawn) {
+          const matchedItem = menuItems.find(
+            (m) => m.name.toLowerCase() === drawn.toLowerCase()
+          )
+          effectiveVoucher = {
+            ...voucher,
+            product_name: drawn,
+            product_menu_item_id: matchedItem ? matchedItem.id : null,
+          }
+        }
+      }
+    }
+
     setModalTab('qr')
     setActiveModal({
-      voucher,
+      voucher: effectiveVoucher,
       mode: 'qr',
       savedToAccount: false,
+      isLuckyDraw,
+      luckyPoolCount,
+      luckyPoolItems,
     })
   }
 
@@ -949,19 +1010,51 @@ export function VoucherSection() {
                             : `Rp ${currentVoucher.discount_value.toLocaleString('id-ID')}`}
                         </div>
 
-                        {currentVoucher.product_name && (
-                          <div
-                            style={{
-                              fontSize: '0.8rem',
-                              color: '#d4a04a',
-                              fontFamily: 'var(--font-inter)',
-                              fontWeight: 700,
-                              marginTop: '4px',
-                            }}
-                          >
-                            Khusus Menu: {currentVoucher.product_name}
-                          </div>
-                        )}
+                        {currentVoucher.product_name && (() => {
+                          const pool = parseProductPool(currentVoucher.product_name)
+                          return pool.isPool ? (
+                            <div style={{ marginTop: '6px' }}>
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  background: 'rgba(147, 51, 234, 0.22)',
+                                  border: '1px solid rgba(147, 51, 234, 0.45)',
+                                  borderRadius: '6px',
+                                  padding: '3px 8px',
+                                  fontSize: '0.74rem',
+                                  color: '#d8b4fe',
+                                  fontWeight: 700,
+                                  marginBottom: '3px',
+                                }}
+                              >
+                                <span>🎲</span> Acak 1 dari {pool.count} Menu Pilihan
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '0.72rem',
+                                  color: 'rgba(255, 255, 255, 0.72)',
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                Opsi: {pool.items.join(', ')}
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                fontSize: '0.8rem',
+                                color: '#d4a04a',
+                                fontFamily: 'var(--font-inter)',
+                                fontWeight: 700,
+                                marginTop: '4px',
+                              }}
+                            >
+                              Khusus Menu: {currentVoucher.product_name}
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       <div style={{ textAlign: 'right' }}>
@@ -1306,11 +1399,39 @@ export function VoucherSection() {
                       type="button"
                       onClick={() => {
                         if (isClaimed) {
+                          let effectiveVoucher = currentVoucher
+                          let isLuckyDraw = false
+                          let luckyPoolCount = 0
+                          let luckyPoolItems: string[] = []
+
+                          if (currentVoucher.discount_type === 'product' && currentVoucher.product_name) {
+                            const pool = parseProductPool(currentVoucher.product_name)
+                            if (pool.isPool) {
+                              isLuckyDraw = true
+                              luckyPoolCount = pool.count
+                              luckyPoolItems = pool.items
+                              const drawn = getOrDrawAwardedProduct(currentVoucher.code, currentVoucher.product_name)
+                              if (drawn) {
+                                const matchItem = menuItems.find(
+                                  (m) => m.name.toLowerCase() === drawn.toLowerCase()
+                                )
+                                effectiveVoucher = {
+                                  ...currentVoucher,
+                                  product_name: drawn,
+                                  product_menu_item_id: matchItem ? matchItem.id : null,
+                                }
+                              }
+                            }
+                          }
+
                           setModalTab('voucher')
                           setActiveModal({
-                            voucher: currentVoucher,
+                            voucher: effectiveVoucher,
                             mode: 'claimed',
                             savedToAccount: false,
+                            isLuckyDraw,
+                            luckyPoolCount,
+                            luckyPoolItems,
                           })
                         } else {
                           handleClaimWithAnimation(currentVoucher)
@@ -1346,7 +1467,11 @@ export function VoucherSection() {
                       ) : (
                         <>
                           <Tag size={16} />
-                          {isTearing ? 'Menyobek Tiket...' : 'Klaim Voucher Sekarang'}
+                          {isTearing
+                            ? 'Menyobek Tiket...'
+                            : parseProductPool(currentVoucher.product_name).isPool
+                            ? '🎲 Klaim & Undi 1 Menu Acak'
+                            : 'Klaim Voucher Sekarang'}
                           <ArrowRight size={15} />
                         </>
                       )}
@@ -1612,18 +1737,26 @@ export function VoucherSection() {
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '6px',
-                              background: 'rgba(74, 158, 106, 0.18)',
-                              color: '#5cd685',
-                              border: '1px solid rgba(74, 158, 106, 0.35)',
-                              padding: '4px 12px',
+                              background: activeModal.isLuckyDraw
+                                ? 'rgba(147, 51, 234, 0.22)'
+                                : 'rgba(74, 158, 106, 0.18)',
+                              color: activeModal.isLuckyDraw ? '#c084fc' : '#5cd685',
+                              border: `1px solid ${
+                                activeModal.isLuckyDraw
+                                  ? 'rgba(147, 51, 234, 0.45)'
+                                  : 'rgba(74, 158, 106, 0.35)'
+                              }`,
+                              padding: '4px 14px',
                               borderRadius: '20px',
                               fontSize: '0.78rem',
                               fontWeight: 700,
                               marginBottom: '8px',
                             }}
                           >
-                            <CheckCircle2 size={14} />
-                            Klaim Berhasil &amp; Siap Digunakan
+                            {activeModal.isLuckyDraw ? <span>🎲</span> : <CheckCircle2 size={14} />}
+                            {activeModal.isLuckyDraw
+                              ? 'Lucky Pick: Menu Acak Berhasil Diundi!'
+                              : 'Klaim Berhasil & Siap Digunakan'}
                           </div>
                           <h3
                             style={{
@@ -1634,7 +1767,9 @@ export function VoucherSection() {
                               marginBottom: '4px',
                             }}
                           >
-                            {activeModal.voucher.discount_type === 'product'
+                            {activeModal.isLuckyDraw
+                              ? `Kamu Beruntung: ${activeModal.voucher.product_name}!`
+                              : activeModal.voucher.discount_type === 'product'
                               ? 'Diskon Menu Spesial!'
                               : 'Voucher Siap Dipakai!'}
                           </h3>
@@ -1645,7 +1780,9 @@ export function VoucherSection() {
                               lineHeight: 1.45,
                             }}
                           >
-                            {activeModal.voucher.discount_type === 'product'
+                            {activeModal.isLuckyDraw
+                              ? `Selamat! Dari ${activeModal.luckyPoolCount} pilihan menu promo, kamu mendapatkan menu ${activeModal.voucher.product_name}!`
+                              : activeModal.voucher.discount_type === 'product'
                               ? `Voucher khusus untuk menu ${activeModal.voucher.product_name || 'pilihan'}. Tambahkan ke keranjang untuk dapatkan potongan langsung!`
                               : 'Diskon otomatis aktif di keranjang belanjamu. Pilih menu favoritmu atau scan di kasir cafe!'}
                           </p>

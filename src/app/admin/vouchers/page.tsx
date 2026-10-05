@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { createClient } from '@/lib/supabase/client'
+import { MultiProductSelector } from '@/components/admin/MultiProductSelector'
+import { parseProductPool } from '@/lib/voucher-draw'
 
 type DiscountType = 'percentage' | 'fixed' | 'product'
 
@@ -63,608 +65,6 @@ const emptyForm = {
   is_active: true,
 }
 
-interface ProductSelectorProps {
-  menuItems: MenuItem[]
-  selectedId: string
-  selectedName: string
-  onSelect: (item: { id: string; name: string }) => void
-}
-
-function ProductSelector({ menuItems, selectedId, selectedName, onSelect }: ProductSelectorProps) {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('Semua')
-  const [isEditing, setIsEditing] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  // Cari item database yang cocok jika ada
-  const currentDbItem = useMemo(() => {
-    if (selectedId) {
-      return menuItems.find(m => m.id === selectedId) || null
-    }
-    if (selectedName) {
-      return menuItems.find(m => m.name.toLowerCase() === selectedName.toLowerCase()) || null
-    }
-    return null
-  }, [menuItems, selectedId, selectedName])
-
-  const hasSelection = Boolean(selectedId || selectedName)
-
-  // Kategori menu dinamis
-  const categories = useMemo(() => {
-    const set = new Set<string>()
-    menuItems.forEach(m => {
-      if (m.category) set.add(m.category)
-    })
-    return ['Semua', ...Array.from(set)]
-  }, [menuItems])
-
-  // Filter rekomendasi dari database
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim()
-    return menuItems.filter(item => {
-      const matchCat = selectedCategory === 'Semua' || item.category === selectedCategory
-      const matchQuery = !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q)
-      return matchCat && matchQuery
-    })
-  }, [menuItems, searchQuery, selectedCategory])
-
-  const handlePickDbItem = (item: MenuItem) => {
-    onSelect({ id: item.id, name: item.name })
-    setIsEditing(false)
-    setSearchQuery('')
-  }
-
-  const handlePickManual = (customName: string) => {
-    const trimmed = customName.trim()
-    if (!trimmed) return
-    const matched = menuItems.find(m => m.name.toLowerCase() === trimmed.toLowerCase())
-    if (matched) {
-      onSelect({ id: matched.id, name: matched.name })
-    } else {
-      onSelect({ id: '', name: trimmed })
-    }
-    setIsEditing(false)
-    setSearchQuery('')
-  }
-
-  const handleStartEdit = () => {
-    setIsEditing(true)
-    setSearchQuery(selectedName || '')
-    setTimeout(() => {
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    }, 50)
-  }
-
-  const handleClear = () => {
-    onSelect({ id: '', name: '' })
-    setIsEditing(true)
-    setSearchQuery('')
-    setTimeout(() => {
-      inputRef.current?.focus()
-    }, 50)
-  }
-
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.85rem',
-      background: 'var(--color-bg-secondary)',
-      border: '1px solid var(--color-border)',
-      borderRadius: 'var(--radius-lg)',
-      padding: '1rem',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--color-primary)', fontWeight: 700, fontFamily: 'var(--font-inter)' }}>
-          <Coffee size={15} /> Produk Spesifik yang Didiskon
-        </div>
-        <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)' }}>
-          Pilih Database / Ketik Manual
-        </span>
-      </div>
-
-      {/* Tampilan 1: Menu Sudah Terpilih & Tidak Sedang Diedit */}
-      {hasSelection && !isEditing ? (
-        <div style={{
-          background: 'var(--color-bg-card)',
-          border: '1.5px solid var(--color-primary)',
-          borderRadius: 'var(--radius-md)',
-          padding: '0.85rem 1rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '10px',
-          boxShadow: 'var(--shadow-sm)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-            {currentDbItem?.image_url ? (
-              <img
-                src={currentDbItem.image_url}
-                alt={selectedName}
-                style={{
-                  width: '46px',
-                  height: '46px',
-                  borderRadius: '8px',
-                  objectFit: 'cover',
-                  flexShrink: 0,
-                  border: '1px solid var(--color-border)',
-                }}
-                onError={e => {
-                  e.currentTarget.style.display = 'none'
-                }}
-              />
-            ) : (
-              <div style={{
-                width: '46px',
-                height: '46px',
-                borderRadius: '8px',
-                background: 'var(--color-primary-glow)',
-                border: '1px solid rgba(201, 100, 39, 0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--color-primary)',
-                flexShrink: 0,
-              }}>
-                <Coffee size={22} />
-              </div>
-            )}
-            <div style={{ minWidth: 0 }}>
-              <div style={{
-                fontWeight: 700,
-                fontSize: '0.95rem',
-                color: 'var(--color-text)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                fontFamily: 'var(--font-inter)',
-              }}>
-                {selectedName}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                {currentDbItem ? (
-                  <>
-                    <span style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      background: 'rgba(74, 158, 106, 0.12)',
-                      color: '#4a9e6a',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '3px',
-                      fontFamily: 'var(--font-inter)',
-                    }}>
-                      <CheckCircle2 size={11} /> Menu Database
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>•</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', fontWeight: 500, fontFamily: 'var(--font-inter)' }}>
-                      {currentDbItem.category}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>•</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)', fontWeight: 600, fontFamily: 'var(--font-inter)' }}>
-                      Rp {currentDbItem.price.toLocaleString('id-ID')}
-                    </span>
-                  </>
-                ) : (
-                  <span style={{
-                    fontSize: '0.7rem',
-                    fontWeight: 600,
-                    padding: '1px 6px',
-                    borderRadius: '4px',
-                    background: 'rgba(147, 51, 234, 0.12)',
-                    color: '#9333ea',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '3px',
-                    fontFamily: 'var(--font-inter)',
-                  }}>
-                    ✏️ Nama Manual / Kustom
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={handleStartEdit}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text)',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-                fontFamily: 'var(--font-inter)',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = 'var(--color-primary)'
-                e.currentTarget.style.color = 'var(--color-primary)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = 'var(--color-border)'
-                e.currentTarget.style.color = 'var(--color-text)'
-              }}
-            >
-              <Pencil size={12} /> Ganti
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              title="Hapus pilihan"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '30px',
-                height: '30px',
-                borderRadius: '6px',
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-muted)',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = '#e85a4a'
-                e.currentTarget.style.color = '#e85a4a'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = 'var(--color-border)'
-                e.currentTarget.style.color = 'var(--color-text-muted)'
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      ) : (
-        /* Tampilan 2: Input Pencarian & Rekomendasi Menu */
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-          {/* Kolom Pencarian */}
-          <div style={{ position: 'relative' }}>
-            <Search
-              size={16}
-              style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--color-text-muted)',
-                pointerEvents: 'none',
-              }}
-            />
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  if (filteredItems.length > 0) {
-                    handlePickDbItem(filteredItems[0])
-                  } else if (searchQuery.trim()) {
-                    handlePickManual(searchQuery)
-                  }
-                }
-              }}
-              placeholder="Cari menu database atau ketik menu manual..."
-              style={{
-                width: '100%',
-                padding: '0.75rem 2.5rem 0.75rem 2.25rem',
-                background: 'var(--color-bg-card)',
-                border: '1.5px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--color-text)',
-                fontFamily: 'var(--font-inter)',
-                fontSize: '0.88rem',
-                outline: 'none',
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-              }}
-              onFocus={e => {
-                e.currentTarget.style.borderColor = 'var(--color-primary)'
-                e.currentTarget.style.boxShadow = '0 0 0 3px var(--color-primary-glow)'
-              }}
-              onBlur={e => {
-                e.currentTarget.style.borderColor = 'var(--color-border)'
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                style={{
-                  position: 'absolute',
-                  right: hasSelection ? '56px' : '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--color-text-muted)',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <X size={15} />
-              </button>
-            )}
-            {hasSelection && (
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--color-primary)',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '4px 6px',
-                  fontFamily: 'var(--font-inter)',
-                }}
-              >
-                Batal
-              </button>
-            )}
-          </div>
-
-          {/* Quick Filter Kategori */}
-          <div style={{
-            display: 'flex',
-            gap: '6px',
-            overflowX: 'auto',
-            paddingBottom: '2px',
-            scrollbarWidth: 'none',
-          }}>
-            {categories.map(cat => {
-              const active = selectedCategory === cat
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '20px',
-                    border: `1px solid ${active ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                    background: active ? 'var(--color-primary)' : 'var(--color-bg-card)',
-                    color: active ? '#ffffff' : 'var(--color-text-muted)',
-                    fontSize: '0.72rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.15s',
-                    flexShrink: 0,
-                    fontFamily: 'var(--font-inter)',
-                  }}
-                >
-                  {cat}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Panel Rekomendasi Menu */}
-          <div style={{
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            overflow: 'hidden',
-            maxHeight: '260px',
-            overflowY: 'auto',
-            boxShadow: 'var(--shadow-sm)',
-          }}>
-            {/* Rekomendasi 1: Opsi teks manual sesuai yang diketik */}
-            {searchQuery.trim().length > 0 && (
-              <div
-                onClick={() => handlePickManual(searchQuery)}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  background: 'rgba(201, 100, 39, 0.08)',
-                  borderBottom: '1px solid var(--color-border)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '8px',
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(201, 100, 39, 0.16)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(201, 100, 39, 0.08)'}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                  <Sparkles size={16} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'var(--font-inter)' }}>
-                      Gunakan Input Manual: <strong style={{ color: 'var(--color-primary)' }}>&ldquo;{searchQuery.trim()}&rdquo;</strong>
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)' }}>
-                      Terapkan diskon untuk menu apapun yang mengandung kata ini di keranjang
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: '0.72rem',
-                  fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: '4px',
-                  background: 'var(--color-primary)',
-                  color: 'white',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  fontFamily: 'var(--font-inter)',
-                }}>
-                  + Pilih Manual
-                </span>
-              </div>
-            )}
-
-            {/* Header List Rekomendasi Database */}
-            <div style={{
-              padding: '0.4rem 0.85rem',
-              background: 'var(--color-bg-secondary)',
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              color: 'var(--color-text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontFamily: 'var(--font-inter)',
-            }}>
-              <span>Rekomendasi dari Database</span>
-              <span>{filteredItems.length} menu</span>
-            </div>
-
-            {/* List Menu Database */}
-            {filteredItems.length === 0 ? (
-              <div style={{ padding: '1.5rem 1rem', textAlign: 'center' }}>
-                <Coffee size={28} style={{ color: 'var(--color-text-muted)', margin: '0 auto 0.5rem', opacity: 0.4 }} />
-                <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem', fontFamily: 'var(--font-inter)' }}>
-                  Tidak ada menu database yang cocok dengan &ldquo;{searchQuery}&rdquo;.
-                </div>
-                {searchQuery.trim() && (
-                  <button
-                    type="button"
-                    onClick={() => handlePickManual(searchQuery)}
-                    className="btn-primary"
-                    style={{ fontSize: '0.78rem', padding: '0.4rem 0.85rem', margin: '0 auto' }}
-                  >
-                    <Sparkles size={13} /> Gunakan &ldquo;{searchQuery.trim()}&rdquo; sebagai Nama Manual
-                  </button>
-                )}
-              </div>
-            ) : (
-              filteredItems.map(item => (
-                <div
-                  key={item.id}
-                  onClick={() => handlePickDbItem(item)}
-                  style={{
-                    padding: '0.6rem 0.85rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '10px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid var(--color-border-light)',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg-secondary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                    {item.image_url ? (
-                      <img
-                        src={item.image_url}
-                        alt={item.name}
-                        style={{
-                          width: '38px',
-                          height: '38px',
-                          borderRadius: '6px',
-                          objectFit: 'cover',
-                          flexShrink: 0,
-                          border: '1px solid var(--color-border)',
-                        }}
-                        onError={e => {
-                          e.currentTarget.style.display = 'none'
-                        }}
-                      />
-                    ) : (
-                      <div style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '6px',
-                        background: 'var(--color-bg-secondary)',
-                        border: '1px solid var(--color-border)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--color-primary)',
-                        flexShrink: 0,
-                      }}>
-                        <Coffee size={16} />
-                      </div>
-                    )}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{
-                        fontSize: '0.86rem',
-                        fontWeight: 600,
-                        color: 'var(--color-text)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        fontFamily: 'var(--font-inter)',
-                      }}>
-                        {item.name}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-inter)' }}>
-                        <span>{item.category}</span>
-                        <span>•</span>
-                        <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-                          Rp {item.price.toLocaleString('id-ID')}
-                        </span>
-                        {item.is_available === false && (
-                          <span style={{ color: '#e85a4a', fontWeight: 600 }}>(Habis)</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      background: 'var(--color-bg-secondary)',
-                      border: '1px solid var(--color-border)',
-                      color: 'var(--color-text)',
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                      transition: 'all 0.15s',
-                      fontFamily: 'var(--font-inter)',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = 'var(--color-primary)'
-                      e.currentTarget.style.color = 'var(--color-primary)'
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.borderColor = 'var(--color-border)'
-                      e.currentTarget.style.color = 'var(--color-text)'
-                    }}
-                  >
-                    Pilih
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
   const [siteUrl, setSiteUrl] = useState('')
@@ -681,11 +81,15 @@ function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () 
   // QR Code langsung mengarah ke URL klaim otomatis di smartphone
   const qrValue = `${effectiveSiteUrl}/voucher/${shareIdentifier}?scan=1`
 
+  const productPool = parseProductPool(voucher.product_name)
+
   const discountLabel =
     voucher.discount_type === 'percentage'
       ? `${voucher.discount_value}%`
       : voucher.discount_type === 'fixed'
       ? `Rp ${voucher.discount_value.toLocaleString('id-ID')}`
+      : productPool.isPool
+      ? `${voucher.discount_value}% (🎲 Acak 1 dari ${productPool.count} Menu)`
       : `${voucher.discount_value}% — ${voucher.product_name || 'Produk Spesifik'}`
 
   const handleCopyLink = () => {
@@ -695,10 +99,15 @@ function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () 
   }
 
   const handleShareWhatsApp = () => {
+    const productInfo = voucher.product_name
+      ? productPool.isPool
+        ? `Hadiah: *🎲 Acak 1 Menu dari (${voucher.product_name})*\n`
+        : `Berlaku untuk: *${voucher.product_name}*\n`
+      : ''
     const text = `🎉 *Voucher Spesial Lorong Rasa!*\n\n` +
       `Kode: *${voucher.code}*\n` +
       `Diskon: *${discountLabel}*\n` +
-      `${voucher.product_name ? `Berlaku untuk: *${voucher.product_name}*\n` : ''}` +
+      productInfo +
       `Min. order: *Rp ${voucher.min_order.toLocaleString('id-ID')}*\n` +
       `Berlaku hingga: *${new Date(voucher.expires_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}*\n\n` +
       `Klaim sekarang 👉 ${shareUrl}`
@@ -769,9 +178,26 @@ function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () 
                   : `${voucher.discount_value}% OFF`}
               </div>
               {voucher.product_name && (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#f0ebe6', border: '1px solid #e0d8d0', borderRadius: '6px', padding: '3px 8px', fontSize: '0.72rem', color: '#7a6a5a', fontWeight: 600, marginBottom: '8px' }}>
-                  <Coffee size={11} />
-                  {voucher.product_name}
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: productPool.isPool ? 'rgba(147, 51, 234, 0.1)' : '#f0ebe6',
+                  border: `1px solid ${productPool.isPool ? 'rgba(147, 51, 234, 0.3)' : '#e0d8d0'}`,
+                  borderRadius: '6px',
+                  padding: '3px 8px',
+                  fontSize: '0.72rem',
+                  color: productPool.isPool ? '#9333ea' : '#7a6a5a',
+                  fontWeight: 600,
+                  marginBottom: '8px',
+                  maxWidth: '100%',
+                }}>
+                  {productPool.isPool ? <span>🎲</span> : <Coffee size={11} />}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {productPool.isPool
+                      ? `Acak 1 dari ${productPool.count} Menu: ${voucher.product_name}`
+                      : voucher.product_name}
+                  </span>
                 </div>
               )}
               <div style={{ fontSize: '0.75rem', color: '#9b8e82', marginBottom: '2px' }}>Min. order: Rp {voucher.min_order.toLocaleString('id-ID')}</div>
@@ -878,21 +304,23 @@ export default function VouchersPage() {
     setSubmitting(true)
     setError('')
 
-    let finalMenuItemId = form.product_menu_item_id
+    let finalMenuItemId: string | null = form.product_menu_item_id || null
     const finalProductName = form.product_name?.trim() || null
 
     if (form.discount_type === 'product') {
       if (!finalProductName) {
-        setError('Harap pilih menu dari database atau ketik nama produk manual.')
+        setError('Harap pilih minimal satu menu produk.')
         setSubmitting(false)
         return
       }
-      // Jika ketik nama manual tapi namanya persis ada di database, hubungkan ID otomatis
-      if (!finalMenuItemId && finalProductName) {
-        const matched = menuItems.find(m => m.name.toLowerCase() === finalProductName.toLowerCase())
-        if (matched) {
-          finalMenuItemId = matched.id
-        }
+      const names = finalProductName.split(',').map(s => s.trim()).filter(Boolean)
+      if (names.length === 1) {
+        // Jika hanya 1 produk & namanya persis di database, hubungkan ID
+        const matched = menuItems.find(m => m.name.toLowerCase() === names[0].toLowerCase())
+        finalMenuItemId = matched ? matched.id : null
+      } else {
+        // Multi-produk pool (acak 1 saat klaim): item ID dibiarkan null
+        finalMenuItemId = null
       }
     }
 
@@ -1053,16 +481,24 @@ export default function VouchersPage() {
               {/* Product fields (only when discount_type = product) */}
               {form.discount_type === 'product' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {/* Selector Interaktif Database & Rekomendasi Manual */}
-                  <ProductSelector
+                  {/* Selector Interaktif Database & Rekomendasi Manual (Bisa Multi Produk) */}
+                  <MultiProductSelector
                     menuItems={menuItems}
-                    selectedId={form.product_menu_item_id}
-                    selectedName={form.product_name}
-                    onSelect={item => {
+                    selectedNames={
+                      form.product_name
+                        ? form.product_name.split(',').map(s => s.trim()).filter(Boolean)
+                        : []
+                    }
+                    onChange={names => {
+                      const joined = names.join(', ')
+                      const singleMatch =
+                        names.length === 1
+                          ? menuItems.find(m => m.name.toLowerCase() === names[0].toLowerCase())
+                          : null
                       setForm(prev => ({
                         ...prev,
-                        product_menu_item_id: item.id,
-                        product_name: item.name,
+                        product_name: joined,
+                        product_menu_item_id: singleMatch ? singleMatch.id : '',
                       }))
                     }}
                   />
@@ -1239,11 +675,56 @@ export default function VouchersPage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '1rem 1.25rem', maxWidth: '160px' }}>
+                    <td style={{ padding: '1rem 1.25rem', maxWidth: '240px' }}>
                       {v.product_name ? (
-                        <span style={{ fontSize: '0.8rem', color: '#9333ea', background: 'rgba(147,51,234,0.08)', border: '1px solid rgba(147,51,234,0.2)', borderRadius: '6px', padding: '2px 8px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <Coffee size={11} />{v.product_name}
-                        </span>
+                        (() => {
+                          const pool = parseProductPool(v.product_name)
+                          return pool.isPool ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                color: '#9333ea',
+                                background: 'rgba(147, 51, 234, 0.12)',
+                                border: '1px solid rgba(147, 51, 234, 0.28)',
+                                borderRadius: '6px',
+                                padding: '2px 7px',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                width: 'fit-content',
+                              }}>
+                                🎲 Acak 1 dari {pool.count} Menu
+                              </span>
+                              <span style={{
+                                fontSize: '0.74rem',
+                                color: 'var(--color-text-secondary)',
+                                lineHeight: 1.3,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '220px',
+                              }} title={pool.items.join(', ')}>
+                                {pool.items.join(', ')}
+                              </span>
+                            </div>
+                          ) : (
+                            <span style={{
+                              fontSize: '0.8rem',
+                              color: '#9333ea',
+                              background: 'rgba(147, 51, 234, 0.08)',
+                              border: '1px solid rgba(147, 51, 234, 0.2)',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              fontWeight: 600,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}>
+                              <Coffee size={11} />{v.product_name}
+                            </span>
+                          )
+                        })()
                       ) : (
                         <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>Semua produk</span>
                       )}

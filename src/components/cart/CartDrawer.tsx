@@ -192,7 +192,7 @@ export function CartDrawer() {
                           </span>
                           {voucher && voucher.discount_type === 'product' && (
                             (voucher.product_menu_item_id && item.id === voucher.product_menu_item_id) ||
-                            (voucher.product_name && item.name.toLowerCase() === voucher.product_name.toLowerCase())
+                            (voucher.product_name && voucher.product_name.split(',').map(s => s.trim().toLowerCase()).some(name => item.name.toLowerCase() === name || item.name.toLowerCase().includes(name)))
                           ) && (
                             <span style={{
                               fontSize: '0.68rem',

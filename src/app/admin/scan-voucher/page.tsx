@@ -828,7 +828,12 @@ export default function ScanVoucherPage() {
                     {currentClaim.vouchers?.discount_type === 'percentage'
                       ? `Diskon ${currentClaim.vouchers.discount_value}%`
                       : currentClaim.vouchers?.discount_type === 'product'
-                      ? `Diskon ${currentClaim.vouchers.discount_value}% (${currentClaim.vouchers.product_name || 'Menu Tertentu'})`
+                      ? (() => {
+                          const isMulti = (currentClaim.vouchers.product_name || '').includes(',')
+                          return isMulti
+                            ? `Diskon ${currentClaim.vouchers.discount_value}% (🎲 1 Menu Acak dari: ${currentClaim.vouchers.product_name})`
+                            : `Diskon ${currentClaim.vouchers.discount_value}% (${currentClaim.vouchers.product_name || 'Menu Tertentu'})`
+                        })()
                       : `Potongan Rp ${Number(currentClaim.vouchers?.discount_value || 0).toLocaleString('id-ID')}`}
                   </div>
                   <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-text)', letterSpacing: '0.1em' }}>

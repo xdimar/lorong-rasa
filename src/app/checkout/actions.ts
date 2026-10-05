@@ -187,11 +187,22 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
           } else if (voucher.discount_type === 'fixed') {
             serverDiscount = Math.min(serverSubtotal, Number(voucher.discount_value))
           } else if (voucher.discount_type === 'product' && voucher.product_name) {
-            const freeItem = verifiedOrderItems.find((it) =>
-              it.menu_item_name.toLowerCase().includes(voucher.product_name.toLowerCase())
+            const allowedNames = voucher.product_name
+              .split(',')
+              .map((s: string) => s.trim().toLowerCase())
+              .filter(Boolean)
+            const matchedItem = verifiedOrderItems.find((it) =>
+              allowedNames.some(
+                (name: string) =>
+                  it.menu_item_name.toLowerCase() === name ||
+                  it.menu_item_name.toLowerCase().includes(name) ||
+                  name.includes(it.menu_item_name.toLowerCase())
+              )
             )
-            if (freeItem) {
-              serverDiscount = Math.min(serverSubtotal, freeItem.price)
+            if (matchedItem) {
+              const discountPercent = Number(voucher.discount_value) || 100
+              const itemDiscount = Math.round((matchedItem.price * discountPercent) / 100)
+              serverDiscount = Math.min(serverSubtotal, itemDiscount)
             }
           }
         }
