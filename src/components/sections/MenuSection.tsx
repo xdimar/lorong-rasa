@@ -295,6 +295,7 @@ export function MenuSection() {
                           src={item.image_url}
                           alt={item.name}
                           loading="lazy"
+                          decoding="async"
                           className="menu-card-img"
                         />
                       ) : (

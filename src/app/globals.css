@@ -1739,3 +1739,34 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+/* ====================================================
+   PERFORMANCE-OPTIMIZED HERO ANIMATIONS (GPU-ACCELERATED)
+   ==================================================== */
+@keyframes heroReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-reveal-1 {
+  animation: heroReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.hero-reveal-2 {
+  animation: heroReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+.hero-reveal-3 {
+  animation: heroReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.16s both;
+}
+.hero-reveal-4 {
+  animation: heroReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both;
+}
+.hero-reveal-5 {
+  animation: heroReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both;
+}
+
+

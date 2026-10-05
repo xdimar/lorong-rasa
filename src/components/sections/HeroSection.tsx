@@ -1,43 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { motion } from 'framer-motion'
 import {
   ArrowRight,
   Star,
   ShoppingBag,
   Tag,
 } from 'lucide-react'
-import dynamic from 'next/dynamic'
-
-const CoffeeCup3D = dynamic(
-  () => import('@/components/ui/CoffeeCup3D').then((mod) => mod.CoffeeCup3D),
-  {
-    ssr: false,
-    loading: () => (
-      <div
-        style={{
-          width: '100%',
-          height: '420px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            border: '3px solid rgba(212, 160, 74, 0.2)',
-            borderTopColor: '#d4a04a',
-          }}
-          className="animate-spin"
-        />
-      </div>
-    ),
-  }
-)
+import { HeroCoffeeCup } from '@/components/ui/HeroCoffeeCup'
 
 export function HeroSection() {
   const marqueeItems = [
@@ -98,10 +68,8 @@ export function HeroSection() {
               =================================================== */}
           <div className="hero-left-content" style={{ maxWidth: '640px' }}>
             {/* Top Heritage Pill with live pulse */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
+            <div
+              className="hero-reveal-1"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -151,13 +119,11 @@ export function HeroSection() {
                 <Star size={12} fill="var(--color-gold)" color="var(--color-gold)" />
                 4.9★
               </div>
-            </motion.div>
+            </div>
 
-            {/* Headline */}
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
+            {/* Headline (Instant Server Paint for Top LCP & FCP) */}
+            <h1
+              className="hero-reveal-2"
               style={{
                 fontSize: 'clamp(2.5rem, 5.5vw, 4.4rem)',
                 fontFamily: 'var(--font-playfair)',
@@ -180,13 +146,11 @@ export function HeroSection() {
               >
                 Sebuah Cerita Rasa
               </span>
-            </motion.h1>
+            </h1>
 
             {/* Description */}
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
+            <p
+              className="hero-reveal-3"
               style={{
                 fontSize: 'clamp(0.95rem, 2vw, 1.12rem)',
                 color: 'var(--color-text-secondary)',
@@ -198,14 +162,11 @@ export function HeroSection() {
             >
               Biji kopi single origin pilihan Nusantara, dipanggang dengan profil presisi
               dan diracik sepenuh hati oleh barista kami. Rasakan kehangatan dan ketenangan di setiap cangkir.
-            </motion.p>
+            </p>
 
             {/* CTA Buttons */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="hero-cta-group"
+            <div
+              className="hero-cta-group hero-reveal-4"
               style={{
                 display: 'flex',
                 gap: '1rem',
@@ -245,14 +206,11 @@ export function HeroSection() {
                 <Tag size={16} />
                 Klaim Voucher Diskon
               </a>
-            </motion.div>
+            </div>
 
             {/* Social Proof & Metrics */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-              className="hero-stats-row"
+            <div
+              className="hero-stats-row hero-reveal-5"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -336,11 +294,11 @@ export function HeroSection() {
                   Rata-rata Waktu Seduh
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
 
           {/* ===================================================
-              RIGHT COLUMN: PURE CLEAN 3D COFFEE CUP
+              RIGHT COLUMN: SMART LAZY-LOAD 3D COFFEE CUP
               =================================================== */}
           <div
             style={{
@@ -351,18 +309,7 @@ export function HeroSection() {
               width: '100%',
             }}
           >
-            <div
-              style={{
-                position: 'relative',
-                width: '100%',
-                maxWidth: '480px',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <CoffeeCup3D />
-            </div>
+            <HeroCoffeeCup />
           </div>
         </div>
       </div>
