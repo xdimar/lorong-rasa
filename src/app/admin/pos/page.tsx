@@ -29,6 +29,7 @@ import {
   User,
   Camera,
   CameraOff,
+  AlertTriangle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { posSound } from '@/lib/sound'
@@ -227,15 +228,22 @@ export default function CashierPOSPage() {
             discount: calculatedDisc,
             discount_type: 'product',
             discount_value: Number(data.discount_value || 100),
+            min_order: Number(data.min_order || 0),
             product_name: foundMenu.name,
             menu_item_id: foundMenu.id,
             claim_id: claimId || null,
           })
 
           posSound.playSuccess()
-          setSuccessToast(
-            `🎁 Voucher ${data.code} Aktif! Menu Hadiah "${foundMenu.name}" otomatis masuk ke keranjang kasir (Diskon ${data.discount_value}%).`
-          )
+          if (data.min_order && subtotal < Number(data.min_order)) {
+            setSuccessToast(
+              `🎁 Voucher ${data.code} Tersimpan! Perlu min. belanja Rp ${Number(data.min_order).toLocaleString('id-ID')} (kurang Rp ${(Number(data.min_order) - subtotal).toLocaleString('id-ID')}).`
+            )
+          } else {
+            setSuccessToast(
+              `🎁 Voucher ${data.code} Aktif! Menu Hadiah "${foundMenu.name}" otomatis masuk ke keranjang kasir (Diskon ${data.discount_value}%).`
+            )
+          }
           setTimeout(() => setSuccessToast(null), 5000)
         } else {
           setAppliedVoucher({
@@ -243,6 +251,7 @@ export default function CashierPOSPage() {
             discount: 0,
             discount_type: 'product',
             discount_value: Number(data.discount_value || 100),
+            min_order: Number(data.min_order || 0),
             product_name: targetItemName || data.product_name,
             claim_id: claimId || null,
           })
@@ -260,7 +269,13 @@ export default function CashierPOSPage() {
           claim_id: claimId || null,
         })
         posSound.playAddToCart()
-        setSuccessToast(`🎉 Voucher Diskon ${data.discount_value}% Berhasil Diterapkan!`)
+        if (data.min_order && subtotal < Number(data.min_order)) {
+          setSuccessToast(
+            `⚠️ Voucher ${data.code} dimasukkan! Butuh min. belanja Rp ${Number(data.min_order).toLocaleString('id-ID')} (kurang Rp ${(Number(data.min_order) - subtotal).toLocaleString('id-ID')}).`
+          )
+        } else {
+          setSuccessToast(`🎉 Voucher Diskon ${data.discount_value}% Berhasil Diterapkan!`)
+        }
         setTimeout(() => setSuccessToast(null), 4000)
       } else {
         const disc = Number(data.discount_value)
@@ -273,7 +288,13 @@ export default function CashierPOSPage() {
           claim_id: claimId || null,
         })
         posSound.playAddToCart()
-        setSuccessToast(`🎉 Potongan Rp ${Number(data.discount_value).toLocaleString('id-ID')} Berhasil Diterapkan!`)
+        if (data.min_order && subtotal < Number(data.min_order)) {
+          setSuccessToast(
+            `⚠️ Voucher ${data.code} dimasukkan! Butuh min. belanja Rp ${Number(data.min_order).toLocaleString('id-ID')} (kurang Rp ${(Number(data.min_order) - subtotal).toLocaleString('id-ID')}).`
+          )
+        } else {
+          setSuccessToast(`🎉 Potongan Rp ${Number(data.discount_value).toLocaleString('id-ID')} Berhasil Diterapkan!`)
+        }
         setTimeout(() => setSuccessToast(null), 4000)
       }
     } catch (err) {
@@ -704,7 +725,54 @@ export default function CashierPOSPage() {
       return
     }
 
-    if (paymentMethod === 'cash' && cashReceived < grandTotal) {
+    // 0. Validasi Syarat min_order & Kuota Terkini Voucher
+    let effectiveVoucher = appliedVoucher
+    let effectiveDiscountAmount = discountAmount
+    let effectiveGrandTotal = grandTotal
+
+    if (appliedVoucher) {
+      if (appliedVoucher.min_order && subtotal < appliedVoucher.min_order) {
+        posSound.playWarning()
+        const proceedWithoutVoucher = confirm(
+          `Voucher "${appliedVoucher.code}" memiliki syarat minimal belanja Rp ${appliedVoucher.min_order.toLocaleString('id-ID')}.\n\nTotal belanja saat ini baru Rp ${subtotal.toLocaleString('id-ID')} (kurang Rp ${(appliedVoucher.min_order - subtotal).toLocaleString('id-ID')}).\n\nApakah Anda ingin memproses pesanan TANPA diskon voucher?\n\n- Klik "OK" untuk melanjutkan transaksi tanpa voucher ini.\n- Klik "Batal" untuk menambah pesanan ke keranjang.`
+        )
+        if (!proceedWithoutVoucher) {
+          return
+        }
+        // Kasir memilih lanjut tanpa diskon voucher
+        effectiveVoucher = null
+        effectiveDiscountAmount = 0
+        effectiveGrandTotal = subtotal
+        setAppliedVoucher(null)
+      } else {
+        // Re-verifikasi kuota voucher terkini dari database
+        const { data: vCheck } = await supabase
+          .from('vouchers')
+          .select('current_uses, max_uses, is_active, expires_at')
+          .ilike('code', appliedVoucher.code)
+          .maybeSingle()
+
+        if (vCheck) {
+          if (!vCheck.is_active) {
+            posSound.playWarning()
+            alert(`Voucher "${appliedVoucher.code}" saat ini sedang dinonaktifkan. Silakan hapus voucher untuk melanjutkan.`)
+            return
+          }
+          if (vCheck.expires_at && new Date(vCheck.expires_at) < new Date()) {
+            posSound.playWarning()
+            alert(`Voucher "${appliedVoucher.code}" sudah kedaluwarsa. Silakan hapus voucher untuk melanjutkan.`)
+            return
+          }
+          if (vCheck.max_uses > 0 && (vCheck.current_uses || 0) >= vCheck.max_uses) {
+            posSound.playWarning()
+            alert(`Kuota penggunaan voucher "${appliedVoucher.code}" sudah habis (${vCheck.current_uses}/${vCheck.max_uses}). Transaksi tidak dapat dilanjutkan dengan voucher ini.`)
+            return
+          }
+        }
+      }
+    }
+
+    if (paymentMethod === 'cash' && cashReceived < effectiveGrandTotal) {
       posSound.playWarning()
       alert('Uang tunai yang diterima masih kurang dari total tagihan!')
       return
@@ -713,7 +781,7 @@ export default function CashierPOSPage() {
     setProcessing(true)
 
     try {
-      const earnedPoints = calculatePointsEarned(grandTotal)
+      const earnedPoints = calculatePointsEarned(effectiveGrandTotal)
 
       // 1. Create order record
       const orderPayload = {
@@ -725,9 +793,9 @@ export default function CashierPOSPage() {
         payment_method: paymentMethod,
         payment_status: 'paid', // Walk-in POS orders are paid on counter
         status: 'preparing', // Directly send to kitchen/barista
-        total_amount: grandTotal,
-        discount_amount: discountAmount,
-        voucher_code: appliedVoucher?.code || null,
+        total_amount: effectiveGrandTotal,
+        discount_amount: effectiveDiscountAmount,
+        voucher_code: effectiveVoucher?.code || null,
         notes: orderNotes.trim() ? `[POS Walk-in] ${orderNotes.trim()}` : '[POS Walk-in]',
       }
 
@@ -763,7 +831,7 @@ export default function CashierPOSPage() {
       }
 
       // Update voucher usage in database:
-      if (appliedVoucher?.claim_id) {
+      if (effectiveVoucher?.claim_id) {
         supabase
           .from('user_vouchers')
           .update({
@@ -771,17 +839,17 @@ export default function CashierPOSPage() {
             used_via: 'offline_cashier',
             used_at: new Date().toISOString(),
           })
-          .eq('id', appliedVoucher.claim_id)
+          .eq('id', effectiveVoucher.claim_id)
           .then((res: { error: unknown }) => {
             if (res.error) console.error('Error updating user_vouchers status:', res.error)
           })
       }
 
-      if (appliedVoucher?.code) {
+      if (effectiveVoucher?.code) {
         supabase
           .from('vouchers')
           .select('id, current_uses')
-          .ilike('code', appliedVoucher.code)
+          .ilike('code', effectiveVoucher.code)
           .maybeSingle()
           .then((res: { data: { id: string; current_uses?: number | null } | null }) => {
             const vRec = res.data
@@ -799,7 +867,7 @@ export default function CashierPOSPage() {
 
       // 3. Award Loyalty Points if member is linked
       if (selectedMember && earnedPoints > 0) {
-        awardLoyaltyPointsForOrder(supabase, orderId, selectedMember.id, grandTotal).catch((err) => {
+        awardLoyaltyPointsForOrder(supabase, orderId, selectedMember.id, effectiveGrandTotal).catch((err) => {
           console.error('Failed to award loyalty points:', err)
         })
       }
@@ -815,13 +883,13 @@ export default function CashierPOSPage() {
         payment_method: paymentMethod,
         payment_status: 'paid',
         status: 'preparing',
-        total_amount: grandTotal,
-        discount_amount: discountAmount,
-        voucher_code: appliedVoucher?.code || null,
+        total_amount: effectiveGrandTotal,
+        discount_amount: effectiveDiscountAmount,
+        voucher_code: effectiveVoucher?.code || null,
         notes: orderPayload.notes,
         created_at: new Date().toISOString(),
-        cash_received: paymentMethod === 'cash' ? cashReceived : grandTotal,
-        change_amount: changeAmount,
+        cash_received: paymentMethod === 'cash' ? cashReceived : effectiveGrandTotal,
+        change_amount: paymentMethod === 'cash' ? Math.max(0, cashReceived - effectiveGrandTotal) : 0,
         loyalty_points_earned: selectedMember && earnedPoints > 0 ? earnedPoints : undefined,
         customer_tier: memberTier ? memberTier.name : undefined,
       }
@@ -1984,20 +2052,21 @@ export default function CashierPOSPage() {
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#4a9e6a', fontWeight: 700 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: discountAmount > 0 ? '#4a9e6a' : 'var(--color-text-muted)', fontWeight: 700 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Tag size={13} />
-                    Voucher: {appliedVoucher.code} (-Rp {discountAmount.toLocaleString('id-ID')})
+                    <Tag size={13} style={{ color: discountAmount > 0 ? '#4a9e6a' : 'var(--color-primary)' }} />
+                    Voucher: {appliedVoucher.code} {discountAmount > 0 ? `(-Rp ${discountAmount.toLocaleString('id-ID')})` : '(Rp 0)'}
                   </span>
                   <button
                     type="button"
                     onClick={removeVoucher}
-                    style={{ background: 'none', border: 'none', color: '#e85a4a', cursor: 'pointer', fontSize: '0.75rem' }}
+                    style={{ background: 'none', border: 'none', color: '#e85a4a', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
                   >
                     Hapus
                   </button>
                 </div>
+
                 {appliedVoucher.discount_type === 'product' && appliedVoucher.product_name && (
                   <div style={{
                     fontSize: '0.72rem',
@@ -2014,6 +2083,48 @@ export default function CashierPOSPage() {
                     <Sparkles size={12} />
                     <span>Hadiah: {appliedVoucher.product_name} (Diskon {appliedVoucher.discount_value}%)</span>
                   </div>
+                )}
+
+                {/* Indikator Validasi Min. Order */}
+                {appliedVoucher.min_order && appliedVoucher.min_order > 0 && (
+                  subtotal < appliedVoucher.min_order ? (
+                    <div style={{
+                      fontSize: '0.72rem',
+                      color: '#d97706',
+                      background: 'rgba(217, 119, 6, 0.12)',
+                      border: '1px solid rgba(217, 119, 6, 0.3)',
+                      padding: '5px 8px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '6px',
+                      lineHeight: 1.35,
+                    }}>
+                      <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '2px', color: '#d97706' }} />
+                      <div>
+                        <div style={{ fontWeight: 700 }}>Syarat Min. Belanja Belum Terpenuhi</div>
+                        <div style={{ color: 'var(--color-text-secondary)', marginTop: '1px' }}>
+                          Voucher butuh min. Rp {appliedVoucher.min_order.toLocaleString('id-ID')}. Belanja saat ini Rp {subtotal.toLocaleString('id-ID')} (kurang <strong>Rp {(appliedVoucher.min_order - subtotal).toLocaleString('id-ID')}</strong>).
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      fontSize: '0.7rem',
+                      color: '#4a9e6a',
+                      background: 'rgba(74, 158, 106, 0.12)',
+                      border: '1px solid rgba(74, 158, 106, 0.3)',
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      fontWeight: 600,
+                    }}>
+                      <CheckCircle2 size={12} style={{ color: '#4a9e6a' }} />
+                      <span>Syarat min. belanja Rp {appliedVoucher.min_order.toLocaleString('id-ID')} terpenuhi</span>
+                    </div>
+                  )
                 )}
               </div>
             )}
