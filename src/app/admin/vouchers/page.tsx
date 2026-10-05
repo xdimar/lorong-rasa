@@ -675,7 +675,7 @@ function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () 
     }
   }, [])
 
-  const effectiveSiteUrl = siteUrl || process.env.NEXT_PUBLIC_SITE_URL || 'https://lorong-rasa.my.id'
+  const effectiveSiteUrl = siteUrl || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.lorong-rasa.my.id'
   const shareIdentifier = voucher.share_token || voucher.code
   const shareUrl = `${effectiveSiteUrl}/voucher/${shareIdentifier}`
   // QR Code langsung mengarah ke URL klaim otomatis di smartphone
@@ -809,7 +809,7 @@ function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () 
 
           {/* Bottom strip */}
           <div style={{ background: '#f0ebe6', borderTop: '1px solid #e0d8d0', padding: '0.65rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontSize: '0.65rem', color: '#9b8e82', fontFamily: 'monospace' }}>lorong-rasa.my.id</div>
+            <div style={{ fontSize: '0.65rem', color: '#9b8e82', fontFamily: 'monospace' }}>www.lorong-rasa.my.id</div>
             <div style={{ fontSize: '0.65rem', color: '#9b8e82' }}>Sisa kuota: {voucher.max_uses - voucher.current_uses}/{voucher.max_uses}</div>
           </div>
         </div>

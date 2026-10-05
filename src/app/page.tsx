@@ -14,13 +14,13 @@ export const metadata: Metadata = {
   description:
     'Nikmati specialty coffee single origin Nusantara dan kudapan tradisional di Lorong Rasa, Wajak, Malang. Pesan online, dine-in, atau takeaway. Suasana hangat, Wi-Fi kencang, harga ramah kantong.',
   alternates: {
-    canonical: 'https://lorong-rasa.my.id',
+    canonical: 'https://www.lorong-rasa.my.id',
   },
   openGraph: {
     title: 'Lorong Rasa — Specialty Coffee & Kudapan Tradisional',
     description:
       'Kopi single origin Nusantara dan kudapan khas, diracik sepenuh hati di Wajak, Malang. Pesan online sekarang!',
-    url: 'https://lorong-rasa.my.id',
+    url: 'https://www.lorong-rasa.my.id',
     images: [
       {
         url: '/og-image.jpg',

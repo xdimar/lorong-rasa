@@ -365,7 +365,7 @@ export function VoucherSection() {
   const siteUrl =
     typeof window !== 'undefined'
       ? window.location.origin
-      : process.env.NEXT_PUBLIC_SITE_URL || 'https://lorong-rasa.my.id'
+      : process.env.NEXT_PUBLIC_SITE_URL || 'https://www.lorong-rasa.my.id'
 
   useEffect(() => {
     async function loadActiveVouchers() {

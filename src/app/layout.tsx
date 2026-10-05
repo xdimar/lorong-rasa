@@ -22,7 +22,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://lorong-rasa.my.id'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.lorong-rasa.my.id'),
   title: {
     default: 'Lorong Rasa — Specialty Coffee & Kudapan Tradisional Wajak',
     template: '%s | Lorong Rasa',
@@ -41,18 +41,18 @@ export const metadata: Metadata = {
     'work from cafe malang',
     'pesan kopi online',
   ],
-  authors: [{ name: 'Lorong Rasa', url: 'https://lorong-rasa.my.id' }],
+  authors: [{ name: 'Lorong Rasa', url: 'https://www.lorong-rasa.my.id' }],
   creator: 'Lorong Rasa',
   publisher: 'Lorong Rasa',
   alternates: {
-    canonical: 'https://lorong-rasa.my.id',
+    canonical: 'https://www.lorong-rasa.my.id',
   },
   openGraph: {
     title: 'Lorong Rasa — Specialty Coffee & Kudapan Tradisional',
     description:
       'Kopi single origin Nusantara, diracik sepenuh hati oleh barista kami. Pesan online atau kunjungi kami di Wajak, Malang.',
     type: 'website',
-    url: 'https://lorong-rasa.my.id',
+    url: 'https://www.lorong-rasa.my.id',
     siteName: 'Lorong Rasa',
     locale: 'id_ID',
     images: [
@@ -80,6 +80,9 @@ export const metadata: Metadata = {
       'max-image-preview': 'large',
       'max-snippet': -1,
     },
+  },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
   },
 }
 

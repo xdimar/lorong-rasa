@@ -295,7 +295,7 @@ function VoucherDetailContent({ token }: { token: string }) {
   const handleShareWa = () => {
     if (!voucher) return
     const currentOrigin =
-      typeof window !== 'undefined' ? window.location.origin : 'https://lorong-rasa.my.id'
+      typeof window !== 'undefined' ? window.location.origin : 'https://www.lorong-rasa.my.id'
     const link = `${currentOrigin}/voucher/${voucher.share_token || voucher.code}`
     const text =
       `🎉 *Voucher Diskon Lorong Rasa!*\n\n` +

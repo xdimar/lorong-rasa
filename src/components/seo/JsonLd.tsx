@@ -1,24 +1,25 @@
 import React from 'react'
 
 export function JsonLd() {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.lorong-rasa.my.id'
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'CafeOrCoffeeShop',
-    '@id': 'https://lorong-rasa.my.id/#cafe',
+    '@id': `${siteUrl}/#cafe`,
     name: 'Lorong Rasa',
     alternateName: 'Lorong Rasa Coffee & Kudapan',
     description:
       'Specialty coffee single origin Nusantara, racikan espresso hangat, dan kudapan tradisional khas Wajak, Malang. Suasana hangat, Wi-Fi kencang, tempat nongkrong dan work from cafe favorit di Wajak.',
-    url: 'https://lorong-rasa.my.id',
+    url: siteUrl,
     telephone: '+6285196671398',
     email: 'lorongrasa30@gmail.com',
     priceRange: 'Rp 10.000 - Rp 35.000',
     currenciesAccepted: 'IDR',
     paymentAccepted: 'Cash, QRIS, GoPay, OVO, ShopeePay, DANA',
     servesCuisine: ['Coffee', 'Indonesian', 'Kudapan Tradisional', 'Snacks'],
-    hasMenu: 'https://lorong-rasa.my.id/menu',
+    hasMenu: `${siteUrl}/menu`,
     image: [
-      'https://lorong-rasa.my.id/og-image.jpg',
+      `${siteUrl}/og-image.jpg`,
     ],
     address: {
       '@type': 'PostalAddress',
