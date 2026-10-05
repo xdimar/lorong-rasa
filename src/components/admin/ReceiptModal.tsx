@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Printer, Copy, Check, X } from 'lucide-react'
+import { Printer, Copy, Check, X, Share2, Loader2 } from 'lucide-react'
 
 export interface ReceiptOrder {
   id: string
@@ -73,9 +73,113 @@ export function ReceiptModal({
   const discount = order.discount_amount || 0
   const finalTotal = order.total_amount || Math.max(0, subtotal - discount)
   const shortOrderId = order.id ? order.id.slice(0, 8).toUpperCase() : 'LR-WALKIN'
+  const [isPrinting, setIsPrinting] = useState(false)
 
+  // Dedicated thermal receipt printer handler using an isolated iframe
   const handlePrint = () => {
-    window.print()
+    setIsPrinting(true)
+    try {
+      const printableElement = document.getElementById('thermal-receipt-printable')
+      if (!printableElement) {
+        window.print()
+        setIsPrinting(false)
+        return
+      }
+
+      // Create an invisible iframe for dedicated printing
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = 'none'
+      iframe.style.visibility = 'hidden'
+      document.body.appendChild(iframe)
+
+      const doc = iframe.contentWindow?.document || iframe.contentDocument
+      if (!doc) {
+        window.print()
+        setIsPrinting(false)
+        return
+      }
+
+      const receiptHtml = printableElement.innerHTML
+      const widthVal = paperWidth === '58mm' ? '58mm' : '80mm'
+      const fontSize = paperWidth === '58mm' ? '11px' : '13px'
+
+      doc.open()
+      doc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Struk_${shortOrderId}</title>
+            <style>
+              @page {
+                size: ${widthVal} auto;
+                margin: 0mm;
+              }
+              * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+              }
+              html, body {
+                width: ${widthVal};
+                margin: 0 auto;
+                padding: 3mm 2mm;
+                background: #ffffff !important;
+                color: #000000 !important;
+                font-family: 'Courier New', Courier, monospace, monospace !important;
+                font-size: ${fontSize} !important;
+                line-height: 1.35 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              div, span, p, table, td, th {
+                color: #000000 !important;
+              }
+            </style>
+          </head>
+          <body>
+            ${receiptHtml}
+          </body>
+        </html>
+      `)
+      doc.close()
+
+      // Give browser brief time to parse DOM before opening print dialog
+      setTimeout(() => {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe)
+          } catch {
+            // ignore
+          }
+          setIsPrinting(false)
+        }, 1500)
+      }, 250)
+    } catch (err) {
+      console.error('Dedicated iframe print failed, falling back to window.print():', err)
+      window.print()
+      setIsPrinting(false)
+    }
+  }
+
+  const handleShareWhatsApp = () => {
+    const text = generateReceiptText()
+    const cleanPhone = (order.customer_phone || '').replace(/[^0-9]/g, '')
+    const targetPhone = cleanPhone.startsWith('0')
+      ? '62' + cleanPhone.slice(1)
+      : cleanPhone.startsWith('8')
+      ? '62' + cleanPhone
+      : cleanPhone
+    const url = targetPhone
+      ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`
+    window.open(url, '_blank')
   }
 
   const generateReceiptText = () => {
@@ -124,10 +228,11 @@ export function ReceiptModal({
 
   return (
     <>
-      {/* Global Print Style for Thermal Printers */}
-      <style jsx global>{`
+      {/* Fallback Standard Print Style for Thermal Printers */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
-          /* Hide all page content except the printable receipt */
           body * {
             visibility: hidden !important;
           }
@@ -141,12 +246,12 @@ export function ReceiptModal({
             top: 0 !important;
             width: ${paperWidth === '58mm' ? '58mm' : '80mm'} !important;
             margin: 0 !important;
-            padding: 4mm !important;
+            padding: 3mm 2mm !important;
             background: #ffffff !important;
             color: #000000 !important;
             font-family: 'Courier New', Courier, monospace !important;
             font-size: ${paperWidth === '58mm' ? '11px' : '13px'} !important;
-            line-height: 1.3 !important;
+            line-height: 1.35 !important;
             box-shadow: none !important;
             border: none !important;
           }
@@ -155,7 +260,9 @@ export function ReceiptModal({
             margin: 0mm;
           }
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {/* Screen Modal Overlay */}
       <div
@@ -490,31 +597,56 @@ export function ReceiptModal({
               flexWrap: 'wrap',
             }}
           >
-            <button
-              type="button"
-              onClick={handleCopyText}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                padding: '0.55rem 0.85rem',
-                borderRadius: '8px',
-                background: 'var(--color-bg-card)',
-                color: 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                flex: '1 1 auto',
-              }}
-            >
-              {copied ? <Check size={14} style={{ color: '#4a9e6a' }} /> : <Copy size={14} />}
-              {copied ? 'Teks Disalin!' : 'Salin Teks'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleCopyText}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                  padding: '0.55rem 0.75rem',
+                  borderRadius: '8px',
+                  background: 'var(--color-bg-card)',
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {copied ? <Check size={14} style={{ color: '#4a9e6a' }} /> : <Copy size={14} />}
+                {copied ? 'Tersalin!' : 'Salin Teks'}
+              </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 auto', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={handleShareWhatsApp}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                  padding: '0.55rem 0.75rem',
+                  borderRadius: '8px',
+                  background: 'rgba(37, 211, 102, 0.12)',
+                  color: '#25D366',
+                  border: '1px solid rgba(37, 211, 102, 0.35)',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                title="Kirim struk teks via WhatsApp"
+              >
+                <Share2 size={13} />
+                Kirim WA
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button
                 type="button"
                 onClick={onClose}
@@ -527,7 +659,6 @@ export function ReceiptModal({
                   fontSize: '0.8rem',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  flex: '1 1 auto',
                   textAlign: 'center',
                 }}
               >
@@ -536,6 +667,7 @@ export function ReceiptModal({
 
               <button
                 type="button"
+                disabled={isPrinting}
                 onClick={handlePrint}
                 style={{
                   display: 'inline-flex',
@@ -549,14 +681,13 @@ export function ReceiptModal({
                   border: 'none',
                   fontSize: '0.82rem',
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: isPrinting ? 'wait' : 'pointer',
                   boxShadow: '0 4px 12px rgba(201, 100, 39, 0.3)',
-                  flex: '2 1 auto',
                   whiteSpace: 'nowrap',
                 }}
               >
-                <Printer size={15} />
-                Cetak Struk
+                {isPrinting ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />}
+                {isPrinting ? 'Mempersiapkan...' : 'Cetak Struk Thermal'}
               </button>
             </div>
           </div>
