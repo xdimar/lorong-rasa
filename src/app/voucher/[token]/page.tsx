@@ -95,6 +95,7 @@ function VoucherDetailContent({ token }: { token: string }) {
   >('idle')
   const [copied, setCopied] = useState(false)
   const [showQrModal, setShowQrModal] = useState(false)
+  const [userClaimId, setUserClaimId] = useState<string | null>(null)
 
   // 1. Fetch Voucher and User Session
   useEffect(() => {
@@ -196,6 +197,7 @@ function VoucherDetailContent({ token }: { token: string }) {
         .maybeSingle()
 
       if (existing) {
+        setUserClaimId(existing.id)
         if (existing.status === 'used') {
           setClaimStatus('already_used')
         } else {
@@ -207,17 +209,24 @@ function VoucherDetailContent({ token }: { token: string }) {
 
       // 3. Masukkan ke user_vouchers
       setClaimStatus('claiming')
-      const { error: insertErr } = await supabase.from('user_vouchers').insert({
-        user_id: userId,
-        voucher_id: v.id,
-        voucher_code: v.code,
-        status: 'claimed',
-      })
+      const { data: inserted, error: insertErr } = await supabase
+        .from('user_vouchers')
+        .insert({
+          user_id: userId,
+          voucher_id: v.id,
+          voucher_code: v.code,
+          status: 'claimed',
+        })
+        .select('id')
+        .maybeSingle()
 
       if (insertErr) {
         console.warn('Auto claim insert err:', insertErr)
         setClaimStatus('idle')
       } else {
+        if (inserted?.id) {
+          setUserClaimId(inserted.id)
+        }
         setClaimStatus('claimed')
         playVoucherChime()
         showToast(`🎉 Voucher ${v.code} berhasil diklaim ke akun Anda!`, 'success')
@@ -592,7 +601,7 @@ function VoucherDetailContent({ token }: { token: string }) {
                       title="Klik untuk perbesar QR Barista"
                     >
                       <QRCodeSVG
-                        value={`VOUCHER:${voucher.code}`}
+                        value={userClaimId ? `VOUCHER_CLAIM:${userClaimId}|${voucher.code}` : `VOUCHER:${voucher.code}`}
                         size={84}
                         bgColor="#ffffff"
                         fgColor="#2c1a0e"
@@ -834,7 +843,7 @@ function VoucherDetailContent({ token }: { token: string }) {
 
             <div style={{ display: 'inline-block', padding: '12px', background: '#f9f9f9', borderRadius: '16px', border: '1px solid #eee', marginBottom: '1.25rem' }}>
               <QRCodeSVG
-                value={`VOUCHER:${voucher.code}`}
+                value={userClaimId ? `VOUCHER_CLAIM:${userClaimId}|${voucher.code}` : `VOUCHER:${voucher.code}`}
                 size={210}
                 bgColor="#f9f9f9"
                 fgColor="#2c1a0e"

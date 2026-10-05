@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import {
   QrCode,
   Search,
@@ -12,6 +13,8 @@ import {
   Check,
   RefreshCw,
   ShieldCheck,
+  Store,
+  Coffee,
 } from 'lucide-react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
@@ -20,10 +23,16 @@ interface VoucherData {
   id: string
   code: string
   description: string
-  discount_type: 'percentage' | 'fixed'
+  discount_type: 'percentage' | 'fixed' | 'product'
   discount_value: number
   expires_at: string
   min_order: number
+  product_name?: string | null
+  product_menu_item_id?: string | null
+  current_uses?: number
+  max_uses?: number
+  is_active?: boolean
+  created_at?: string
 }
 
 interface ProfileData {
@@ -227,104 +236,213 @@ export default function ScanVoucherPage() {
 
       let claimId: string | null = null
       let code: string | null = null
+      let rawIdentifier = text
 
-      if (text.includes('/voucher/')) {
+      // 1. Ekstrak data jika input berupa URL (website share link atau paper QR)
+      if (text.startsWith('http://') || text.startsWith('https://') || text.includes('/voucher')) {
         try {
-          const match = text.match(/\/voucher\/([^/?#]+)/)
-          if (match && match[1]) {
-            const rawToken = decodeURIComponent(match[1]).trim()
-            const { data: vRecord } = await supabase
-              .from('vouchers')
-              .select('id, code')
-              .or(`share_token.eq.${rawToken},code.eq.${rawToken.toUpperCase()},id.eq.${rawToken}`)
-              .maybeSingle()
-
-            if (vRecord) {
-              code = vRecord.code
-            } else {
-              code = rawToken.toUpperCase()
+          const parsed = new URL(text.startsWith('http') ? text : `http://localhost${text.startsWith('/') ? '' : '/'}${text}`)
+          const queryParam = parsed.searchParams.get('code') || parsed.searchParams.get('token') || parsed.searchParams.get('voucher')
+          if (queryParam) {
+            rawIdentifier = queryParam.trim()
+          } else {
+            const match = parsed.pathname.match(/\/voucher\/([^/?#]+)/)
+            if (match && match[1]) {
+              rawIdentifier = decodeURIComponent(match[1]).trim()
             }
           }
         } catch {
-          // ignore
-        }
-      } else if (text.startsWith('VOUCHER_CLAIM:')) {
-        // Format: VOUCHER_CLAIM:id|code|userId
-        const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
-        claimId = parts[0]
-        code = parts[1]
-      } else if (text.startsWith('VOUCHER:')) {
-        // Older format fallback: VOUCHER:CODE|...
-        const parts = text.replace('VOUCHER:', '').split('|')
-        code = parts[0]
-      } else {
-        // Assume text is either claim ID or Voucher Code
-        if (text.length === 36 && text.includes('-')) {
-          claimId = text
-        } else {
-          code = text.toUpperCase()
-        }
-      }
-
-      // Fetch user_vouchers
-      let query = supabase.from('user_vouchers').select('*, vouchers(*)')
-
-      if (claimId) {
-        query = query.eq('id', claimId)
-      } else if (code) {
-        query = query.ilike('voucher_code', code)
-      }
-
-      const { data, error } = await query
-
-      if (error || !data || data.length === 0) {
-        // If not found in user_vouchers, check if voucher code exists in general vouchers
-        if (code) {
-          const { data: vGeneral } = await supabase
-            .from('vouchers')
-            .select('*')
-            .ilike('code', code)
-            .single()
-
-          if (vGeneral) {
-            setErrorMsg(
-              `Kode "${code}" terdaftar di sistem, namun belum diklaim oleh pelanggan ke akun mereka. Pelanggan wajib mengklaim di profil terlebih dahulu.`
-            )
-            setLoading(false)
-            return
+          const match = text.match(/\/voucher\/([^/?#]+)/)
+          if (match && match[1]) {
+            rawIdentifier = decodeURIComponent(match[1]).trim()
           }
         }
+      } else if (text.startsWith('VOUCHER_CLAIM:')) {
+        const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
+        claimId = parts[0]?.trim() || null
+        code = parts[1]?.trim() || null
+      } else if (text.startsWith('VOUCHER:')) {
+        const parts = text.replace('VOUCHER:', '').split('|')
+        code = parts[0]?.trim() || null
+      } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+        claimId = text
+      } else {
+        code = text.toUpperCase()
+      }
 
-        setErrorMsg('Voucher atau ID Klaim tidak ditemukan di sistem Lorong Rasa.')
+      const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+
+      // Jika belum ada code atau claimId, manfaatkan rawIdentifier
+      if (!claimId && !code && rawIdentifier) {
+        if (isUuid(rawIdentifier)) {
+          claimId = rawIdentifier
+        } else {
+          code = rawIdentifier.toUpperCase()
+        }
+      }
+
+      let uvRecord: ClaimedVoucher | null = null
+      let voucherRecord: VoucherData | null = null
+
+      // Langkah A: Jika ada claimId (UUID), cari di user_vouchers terlebih dahulu
+      if (claimId && isUuid(claimId)) {
+        const { data: byClaimId } = await supabase
+          .from('user_vouchers')
+          .select('*, vouchers(*)')
+          .eq('id', claimId)
+          .maybeSingle()
+
+        if (byClaimId) {
+          uvRecord = byClaimId as ClaimedVoucher
+          if (byClaimId.vouchers) {
+            voucherRecord = byClaimId.vouchers as VoucherData
+            code = voucherRecord.code
+          }
+        } else {
+          // Jika tidak ada di user_vouchers, cari di master vouchers sebagai ID voucher
+          const { data: byVoucherId } = await supabase
+            .from('vouchers')
+            .select('*')
+            .eq('id', claimId)
+            .maybeSingle()
+
+          if (byVoucherId) {
+            voucherRecord = byVoucherId as VoucherData
+            code = byVoucherId.code
+          }
+        }
+      }
+
+      // Langkah B: Cari di master vouchers berdasarkan code atau rawIdentifier jika belum ditemukan
+      if (!voucherRecord && (code || rawIdentifier)) {
+        const lookup = (code || rawIdentifier).trim()
+
+        // 1. Cek berdasarkan kode voucher (ilike)
+        const { data: byCode } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', lookup)
+          .maybeSingle()
+
+        if (byCode) {
+          voucherRecord = byCode as VoucherData
+          code = byCode.code
+        } else {
+          // 2. Cek berdasarkan share_token
+          const { data: byToken } = await supabase
+            .from('vouchers')
+            .select('*')
+            .eq('share_token', lookup)
+            .maybeSingle()
+
+          if (byToken) {
+            voucherRecord = byToken as VoucherData
+            code = byToken.code
+          } else if (isUuid(lookup)) {
+            // 3. Cek berdasarkan UUID id
+            const { data: byId } = await supabase
+              .from('vouchers')
+              .select('*')
+              .eq('id', lookup)
+              .maybeSingle()
+
+            if (byId) {
+              voucherRecord = byId as VoucherData
+              code = byId.code
+            }
+          }
+        }
+      }
+
+      // Langkah C: Cek apakah ada klaim aktif di user_vouchers untuk voucher ini
+      if (!uvRecord && code) {
+        const { data: byCodeList } = await supabase
+          .from('user_vouchers')
+          .select('*, vouchers(*)')
+          .ilike('voucher_code', code)
+          .order('claimed_at', { ascending: false })
+
+        if (byCodeList && byCodeList.length > 0) {
+          const list = byCodeList as ClaimedVoucher[]
+          // Utamakan klaim member yang statusnya masih 'claimed' (belum dipakai)
+          const activeClaim = list.find((c: ClaimedVoucher) => c.status === 'claimed')
+          if (activeClaim) {
+            uvRecord = activeClaim
+          } else if (!voucherRecord) {
+            // Jika master vouchers tidak ditemukan, baru gunakan riwayat claim yang sudah 'used'
+            uvRecord = list[0]
+          }
+        }
+      }
+
+      // Skenario 1: Ditemukan record di user_vouchers (klaim oleh member)
+      if (uvRecord) {
+        if (uvRecord.user_id && uvRecord.user_id !== 'walk-in-customer') {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', uvRecord.user_id)
+            .maybeSingle()
+          uvRecord.profiles = profile || undefined
+        }
+        setCurrentClaim(uvRecord)
         setLoading(false)
         return
       }
 
-      // Guard: If multiple users claimed this promo code, don't pick data[0] blindly
-      if (code && !claimId && data.length > 1) {
-        setErrorMsg(
-          `Ditemukan ${data.length} pelanggan yang mengklaim voucher "${code}". Masukkan email akun pelanggan atau minta scan QR klaim di HP pelanggan untuk memastikan pemilik yang sah.`
-        )
+      // Skenario 2: Belum pernah diklaim member di user_vouchers, tapi terdaftar resmi di tabel vouchers (Walk-in / Tamu / Paper QR)
+      if (voucherRecord) {
+        const isExp = new Date(voucherRecord.expires_at) < new Date()
+        const isQuota = (voucherRecord.max_uses || 0) > 0 && (voucherRecord.current_uses || 0) >= (voucherRecord.max_uses || 0)
+        const isOff = !voucherRecord.is_active
+
+        if (isOff) {
+          setErrorMsg(`Voucher "${voucherRecord.code}" saat ini berstatus nonaktif di sistem.`)
+          setLoading(false)
+          return
+        }
+        if (isExp) {
+          setErrorMsg(`Voucher "${voucherRecord.code}" sudah kedaluwarsa pada ${new Date(voucherRecord.expires_at).toLocaleDateString('id-ID')}.`)
+          setLoading(false)
+          return
+        }
+        if (isQuota) {
+          setErrorMsg(`Kuota voucher "${voucherRecord.code}" sudah habis (${voucherRecord.current_uses}/${voucherRecord.max_uses}).`)
+          setLoading(false)
+          return
+        }
+
+        // Tampilkan sebagai tiket promo langsung di kasir
+        const walkInClaim: ClaimedVoucher = {
+          id: voucherRecord.id,
+          user_id: 'walk-in-customer',
+          voucher_id: voucherRecord.id,
+          voucher_code: voucherRecord.code,
+          status: 'claimed',
+          claimed_at: voucherRecord.created_at || new Date().toISOString(),
+          used_at: null,
+          used_via: null,
+          redeemed_by_cashier_id: null,
+          vouchers: voucherRecord,
+          profiles: {
+            id: 'walk-in',
+            email: 'Voucher Promosi Langsung (Walk-In / Tamu)',
+            full_name: 'Pelanggan Kafe (Walk-In / Kertas)',
+            role: 'customer',
+          },
+        }
+
+        setCurrentClaim(walkInClaim)
         setLoading(false)
         return
       }
 
-      // Pick the matching record
-      const claim = data[0]
-
-      // Fetch customer profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', claim.user_id)
-        .single()
-
-      claim.profiles = profile || null
-      setCurrentClaim(claim)
+      // Skenario 3: Jika benar-benar tidak ditemukan di manapun
+      setErrorMsg(`Voucher atau ID Klaim "${text}" tidak ditemukan di sistem Lorong Rasa.`)
+      setLoading(false)
     } catch (err: unknown) {
       console.error(err)
       setErrorMsg('Terjadi kesalahan saat memverifikasi voucher.')
-    } finally {
       setLoading(false)
     }
   }
@@ -344,20 +462,22 @@ export default function ScanVoucherPage() {
     try {
       const now = new Date().toISOString()
 
-      // 1. Update user_vouchers record
-      const { error: uvErr } = await supabase
-        .from('user_vouchers')
-        .update({
-          status: 'used',
-          used_via: 'offline_cashier',
-          used_at: now,
-          redeemed_by_cashier_id: cashierUser?.id || null,
-        })
-        .eq('id', currentClaim.id)
+      // 1. Jika ini record user_vouchers nyata (member terdaftar):
+      if (currentClaim.user_id !== 'walk-in-customer' && currentClaim.id !== currentClaim.voucher_id) {
+        const { error: uvErr } = await supabase
+          .from('user_vouchers')
+          .update({
+            status: 'used',
+            used_via: 'offline_cashier',
+            used_at: now,
+            redeemed_by_cashier_id: cashierUser?.id || null,
+          })
+          .eq('id', currentClaim.id)
 
-      if (uvErr) throw uvErr
+        if (uvErr) throw uvErr
+      }
 
-      // 2. Increment voucher usage in vouchers table
+      // 2. Increment penggunaan di tabel vouchers
       if (currentClaim.voucher_id) {
         const { data: vData } = await supabase
           .from('vouchers')
@@ -662,7 +782,7 @@ export default function ScanVoucherPage() {
                 padding: '1.25rem',
                 marginBottom: '1rem',
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{
                     fontFamily: 'var(--font-playfair)',
                     fontWeight: 800,
@@ -671,9 +791,11 @@ export default function ScanVoucherPage() {
                   }}>
                     {currentClaim.vouchers?.discount_type === 'percentage'
                       ? `Diskon ${currentClaim.vouchers.discount_value}%`
+                      : currentClaim.vouchers?.discount_type === 'product'
+                      ? `Diskon ${currentClaim.vouchers.discount_value}% (${currentClaim.vouchers.product_name || 'Menu Tertentu'})`
                       : `Potongan Rp ${Number(currentClaim.vouchers?.discount_value || 0).toLocaleString('id-ID')}`}
                   </div>
-                  <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1rem', color: 'var(--color-text)', letterSpacing: '0.1em' }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.1rem', color: 'var(--color-text)', letterSpacing: '0.1em' }}>
                     {currentClaim.voucher_code}
                   </div>
                 </div>
@@ -724,7 +846,7 @@ export default function ScanVoucherPage() {
               </div>
 
               {/* Redemption Action Button */}
-              <div style={{ marginTop: 'auto' }}>
+              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                 {currentClaim.status === 'claimed' ? (
                   <button
                     onClick={handleRedeemOffline}
@@ -768,6 +890,27 @@ export default function ScanVoucherPage() {
                     Voucher ini sudah pernah ditukarkan dan tidak dapat digunakan lagi.
                   </div>
                 )}
+
+                <Link
+                  href={`/admin/pos?voucher=${encodeURIComponent(currentClaim.voucher_code)}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '10px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-bg-secondary)',
+                    color: 'var(--color-text)',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    fontFamily: 'var(--font-inter)',
+                  }}
+                >
+                  <Store size={15} /> Buka di Kasir POS dengan Voucher Ini
+                </Link>
               </div>
             </div>
           )}

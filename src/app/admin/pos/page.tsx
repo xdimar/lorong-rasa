@@ -146,6 +146,13 @@ export default function CashierPOSPage() {
           const distinct = Array.from<string>(new Set(menuData.map((m: { category?: string }) => m.category).filter((c: string | undefined): c is string => Boolean(c) && c !== 'Semua')))
           setCategories(['Semua', ...distinct])
         }
+
+        if (typeof window !== 'undefined') {
+          const vParam = new URLSearchParams(window.location.search).get('voucher')
+          if (vParam) {
+            setVoucherCodeInput(vParam.toUpperCase())
+          }
+        }
       } catch (err) {
         console.error('POS init error:', err)
         setItems(defaultMenuItems)
