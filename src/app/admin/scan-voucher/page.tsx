@@ -228,7 +228,27 @@ export default function ScanVoucherPage() {
       let claimId: string | null = null
       let code: string | null = null
 
-      if (text.startsWith('VOUCHER_CLAIM:')) {
+      if (text.includes('/voucher/')) {
+        try {
+          const match = text.match(/\/voucher\/([^/?#]+)/)
+          if (match && match[1]) {
+            const rawToken = decodeURIComponent(match[1]).trim()
+            const { data: vRecord } = await supabase
+              .from('vouchers')
+              .select('id, code')
+              .or(`share_token.eq.${rawToken},code.eq.${rawToken.toUpperCase()},id.eq.${rawToken}`)
+              .maybeSingle()
+
+            if (vRecord) {
+              code = vRecord.code
+            } else {
+              code = rawToken.toUpperCase()
+            }
+          }
+        } catch {
+          // ignore
+        }
+      } else if (text.startsWith('VOUCHER_CLAIM:')) {
         // Format: VOUCHER_CLAIM:id|code|userId
         const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
         claimId = parts[0]

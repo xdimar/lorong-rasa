@@ -667,9 +667,19 @@ function ProductSelector({ menuItems, selectedId, selectedName, onSelect }: Prod
 
 function PaperVoucherCard({ voucher, onClose }: { voucher: Voucher; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://lorong-rasa.my.id'
-  const shareUrl = voucher.share_token ? `${siteUrl}/voucher/${voucher.share_token}` : `${siteUrl}/profile`
-  const qrValue = `VOUCHER:${voucher.code}|TYPE:${voucher.discount_type}|VAL:${voucher.discount_value}|MIN:${voucher.min_order}${voucher.product_name ? `|PRODUCT:${voucher.product_name}` : ''}`
+  const [siteUrl, setSiteUrl] = useState('')
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setSiteUrl(window.location.origin)
+    }
+  }, [])
+
+  const effectiveSiteUrl = siteUrl || process.env.NEXT_PUBLIC_SITE_URL || 'https://lorong-rasa.my.id'
+  const shareIdentifier = voucher.share_token || voucher.code
+  const shareUrl = `${effectiveSiteUrl}/voucher/${shareIdentifier}`
+  // QR Code langsung mengarah ke URL klaim otomatis di smartphone
+  const qrValue = `${effectiveSiteUrl}/voucher/${shareIdentifier}?scan=1`
 
   const discountLabel =
     voucher.discount_type === 'percentage'
