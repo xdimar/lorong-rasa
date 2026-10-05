@@ -26,6 +26,7 @@ import { useToast } from '@/components/providers/ToastProvider'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { AnimateOnScroll } from '@/components/ui/AnimateOnScroll'
+import { parseProductPool, getOrDrawAwardedProduct } from '@/lib/voucher-draw'
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -150,11 +151,27 @@ export default function CheckoutPage() {
         }
       }
 
+      // Untuk voucher tipe product dengan multi-produk (lucky draw), tentukan produk yang dipilih secara acak
+      let effectiveProductName: string | null = data.product_name || null
+      let effectiveProductMenuItemId: string | null = data.product_menu_item_id || null
+
+      if (data.discount_type === 'product' && data.product_name) {
+        const pool = parseProductPool(data.product_name)
+        if (pool.isPool) {
+          const drawn = getOrDrawAwardedProduct(data.code, data.product_name)
+          if (drawn) {
+            effectiveProductName = drawn
+          }
+        }
+      }
+
       const applied = applyVoucher({
         code: data.code,
         discount_type: data.discount_type,
         discount_value: data.discount_value,
         min_order: data.min_order,
+        product_name: effectiveProductName,
+        product_menu_item_id: effectiveProductMenuItemId,
       })
 
       if (applied) {
@@ -206,7 +223,7 @@ export default function CheckoutPage() {
         tableNumber: orderType === 'dine_in' ? tableNumber.trim() : undefined,
         paymentMethod,
         orderNotes: orderNotes.trim() || undefined,
-        voucherCode: voucher && discount > 0 ? voucher.code : undefined,
+        voucherCode: voucher ? voucher.code : undefined,
         items: items.map((it) => ({
           id: it.id,
           name: it.name,
@@ -763,6 +780,11 @@ export default function CheckoutPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', fontFamily: 'var(--font-inter)', color: '#4a9e6a' }}>
                         <span>Diskon Voucher</span>
                         <span style={{ fontWeight: 600 }}>-Rp {discount.toLocaleString('id-ID')}</span>
+                      </div>
+                    )}
+                    {voucher && voucher.discount_type === 'product' && voucher.product_name && discount === 0 && (
+                      <div style={{ fontSize: '0.78rem', color: '#b8860b', background: 'rgba(212, 175, 55, 0.1)', border: '1px solid rgba(212, 175, 55, 0.35)', borderRadius: '6px', padding: '6px 10px', marginTop: '4px' }}>
+                        ⚠️ Voucher produk aktif — Pastikan menu <strong>&ldquo;{voucher.product_name}&rdquo;</strong> ada di keranjang agar diskon teraplikasikan.
                       </div>
                     )}
 

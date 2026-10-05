@@ -105,6 +105,25 @@ export function CartDrawer() {
           </button>
         </div>
 
+        {/* Voucher product warning: produk yang disyaratkan belum ada di keranjang */}
+        {voucher && voucher.discount_type === 'product' && voucher.product_name && discount === 0 && (
+          <div style={{
+            margin: '0 1.5rem',
+            padding: '0.75rem 1rem',
+            background: 'rgba(212, 175, 55, 0.1)',
+            border: '1px solid rgba(212, 175, 55, 0.35)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '0.8rem',
+            color: 'var(--color-text)',
+            fontFamily: 'var(--font-inter)',
+            lineHeight: 1.5,
+          }}>
+            <strong style={{ color: 'var(--color-primary)' }}>⚠️ Voucher {voucher.code} aktif</strong> — Tambahkan menu{' '}
+            <strong style={{ color: 'var(--color-primary)' }}>&ldquo;{voucher.product_name}&rdquo;</strong>{' '}
+            ke keranjang agar diskon {voucher.discount_value}% teraplikasikan.
+          </div>
+        )}
+
         {/* Items */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.5rem' }}>
           {items.length === 0 ? (
