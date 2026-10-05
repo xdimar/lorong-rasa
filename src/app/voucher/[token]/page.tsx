@@ -597,6 +597,57 @@ function VoucherDetailContent({ token }: { token: string }) {
           {!loading && voucher && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {/* Alert Status (Klaim berhasil / sudah dipakai / kadaluarsa) */}
+              {claimStatus === 'already_used' && (
+                <div
+                  style={{
+                    background: 'rgba(232, 90, 74, 0.12)',
+                    border: '1.5px solid rgba(232, 90, 74, 0.45)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '1rem 1.25rem',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                  }}
+                >
+                  <AlertCircle size={22} style={{ color: '#e85a4a', flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.94rem', color: '#e85a4a' }}>
+                      ⚠️ Voucher Ini Sudah Pernah Digunakan
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--color-text)', marginTop: '4px', lineHeight: 1.5 }}>
+                      Akun Anda ({currentUser?.email || 'Member'}) sudah pernah menukarkan voucher <strong>{voucher.code}</strong> ini pada transaksi sebelumnya (Maksimal 1 voucher per akun).
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '6px' }}>
+                      💡 Ingin menguji coba penukaran sebagai pelanggan baru? Silakan buka link ini melalui <strong>Tab Incognito / Akun Tamu</strong>, atau buat voucher baru di Dashboard Admin.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {claimStatus === 'already_claimed' && (
+                <div
+                  style={{
+                    background: 'rgba(212, 160, 74, 0.12)',
+                    border: '1.5px solid rgba(212, 160, 74, 0.4)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '0.9rem 1.25rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                  }}
+                >
+                  <CheckCircle2 size={22} style={{ color: '#d4a04a', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#d4a04a' }}>
+                      Tersimpan di Dompet Akun Anda
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text)', marginTop: '2px' }}>
+                      Voucher ini sudah tersimpan di akun Anda dan siap ditukarkan di kasir atau dipakai saat checkout.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {claimStatus === 'claimed' && (
                 <div
                   style={{
@@ -1276,9 +1327,25 @@ function VoucherDetailContent({ token }: { token: string }) {
               />
             </div>
 
-            <div style={{ fontSize: '0.78rem', color: '#666', lineHeight: 1.4, marginBottom: '1rem' }}>
-              Barista akan memindai barcode / QR code ini di mesin kasir POS Lorong Rasa untuk memotong pesanan Anda.
-            </div>
+            {claimStatus === 'already_used' ? (
+              <div style={{
+                background: 'rgba(232, 90, 74, 0.1)',
+                border: '1px solid rgba(232, 90, 74, 0.3)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                fontSize: '0.76rem',
+                color: '#e85a4a',
+                lineHeight: 1.4,
+                marginBottom: '1rem',
+                fontWeight: 600,
+              }}>
+                ⚠️ Voucher ini sudah pernah digunakan oleh akun Anda pada transaksi sebelumnya (tidak dapat ditukarkan lagi oleh akun ini).
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.78rem', color: '#666', lineHeight: 1.4, marginBottom: '1rem' }}>
+                Barista akan memindai barcode / QR code ini di mesin kasir POS Lorong Rasa untuk memotong pesanan Anda.
+              </div>
+            )}
 
             {/* Aksi di dalam modal: Share ke WhatsApp, Salin Kode, & Tutup */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
