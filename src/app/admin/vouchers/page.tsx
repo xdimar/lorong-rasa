@@ -898,7 +898,7 @@ export default function VouchersPage() {
 
     const shareToken = Math.random().toString(36).substring(2, 14)
     const payload: Record<string, unknown> = {
-      code: form.code.toUpperCase(),
+      code: form.code.trim().toUpperCase(),
       description: form.description,
       discount_type: form.discount_type,
       discount_value: form.discount_value,

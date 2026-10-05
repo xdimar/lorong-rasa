@@ -318,15 +318,33 @@ export default function ScanVoucherPage() {
         const lookup = (code || rawIdentifier).trim()
 
         // 1. Cek berdasarkan kode voucher (ilike)
-        const { data: byCode } = await supabase
+        let { data: byCode } = await supabase
           .from('vouchers')
           .select('*')
           .ilike('code', lookup)
           .maybeSingle()
 
+        // 1b. Fallback: Tangani jika kode di database memiliki spasi tambahan (misal: "GRANDOPENING ")
+        if (!byCode) {
+          const { data: fuzzyCodes } = await supabase
+            .from('vouchers')
+            .select('*')
+            .ilike('code', `%${lookup}%`)
+
+          if (fuzzyCodes && fuzzyCodes.length > 0) {
+            const exactTrimmed = fuzzyCodes.find(
+              (v: VoucherData) => (v.code || '').trim().toUpperCase() === lookup.toUpperCase()
+            )
+            byCode = exactTrimmed || fuzzyCodes[0]
+          }
+        }
+
         if (byCode) {
-          voucherRecord = byCode as VoucherData
-          code = byCode.code
+          voucherRecord = {
+            ...byCode,
+            code: byCode.code.trim(),
+          } as VoucherData
+          code = voucherRecord.code
         } else {
           // 2. Cek berdasarkan share_token
           const { data: byToken } = await supabase
@@ -336,8 +354,11 @@ export default function ScanVoucherPage() {
             .maybeSingle()
 
           if (byToken) {
-            voucherRecord = byToken as VoucherData
-            code = byToken.code
+            voucherRecord = {
+              ...byToken,
+              code: byToken.code.trim(),
+            } as VoucherData
+            code = voucherRecord.code
           } else if (isUuid(lookup)) {
             // 3. Cek berdasarkan UUID id
             const { data: byId } = await supabase
@@ -347,8 +368,11 @@ export default function ScanVoucherPage() {
               .maybeSingle()
 
             if (byId) {
-              voucherRecord = byId as VoucherData
-              code = byId.code
+              voucherRecord = {
+                ...byId,
+                code: byId.code.trim(),
+              } as VoucherData
+              code = voucherRecord.code
             }
           }
         }
@@ -356,11 +380,23 @@ export default function ScanVoucherPage() {
 
       // Langkah C: Cek apakah ada klaim aktif di user_vouchers untuk voucher ini
       if (!uvRecord && code) {
-        const { data: byCodeList } = await supabase
+        const cleanCode = code.trim()
+        let { data: byCodeList } = await supabase
           .from('user_vouchers')
           .select('*, vouchers(*)')
-          .ilike('voucher_code', code)
+          .ilike('voucher_code', cleanCode)
           .order('claimed_at', { ascending: false })
+
+        if (!byCodeList || byCodeList.length === 0) {
+          const { data: fuzzyList } = await supabase
+            .from('user_vouchers')
+            .select('*, vouchers(*)')
+            .ilike('voucher_code', `%${cleanCode}%`)
+            .order('claimed_at', { ascending: false })
+          if (fuzzyList && fuzzyList.length > 0) {
+            byCodeList = fuzzyList
+          }
+        }
 
         if (byCodeList && byCodeList.length > 0) {
           const list = byCodeList as ClaimedVoucher[]

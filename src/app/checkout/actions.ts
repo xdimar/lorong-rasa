@@ -142,12 +142,24 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
     if (payload.voucherCode?.trim()) {
       const cleanCode = payload.voucherCode.trim().toUpperCase()
 
-      const { data: voucher } = await supabase
+      let { data: voucher } = await supabase
         .from('vouchers')
         .select('*')
-        .eq('code', cleanCode)
+        .ilike('code', cleanCode)
         .eq('is_active', true)
         .maybeSingle()
+
+      if (!voucher) {
+        const { data: fuzzyList } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', `%${cleanCode}%`)
+          .eq('is_active', true)
+
+        if (fuzzyList && fuzzyList.length > 0) {
+          voucher = fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === cleanCode) || fuzzyList[0]
+        }
+      }
 
       if (voucher) {
         const isNotExpired = new Date(voucher.expires_at) >= new Date()

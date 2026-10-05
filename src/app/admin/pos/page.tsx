@@ -287,14 +287,27 @@ export default function CashierPOSPage() {
     if (!voucherCodeInput.trim()) return
     setVoucherError('')
     try {
-      const { data, error } = await supabase
+      const cleanCode = voucherCodeInput.trim().toUpperCase()
+      let { data, error } = await supabase
         .from('vouchers')
         .select('*')
-        .eq('code', voucherCodeInput.trim().toUpperCase())
+        .ilike('code', cleanCode)
         .eq('is_active', true)
-        .single()
+        .maybeSingle()
 
-      if (error || !data) {
+      if (!data) {
+        const { data: fuzzyList } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', `%${cleanCode}%`)
+          .eq('is_active', true)
+
+        if (fuzzyList && fuzzyList.length > 0) {
+          data = fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === cleanCode) || fuzzyList[0]
+        }
+      }
+
+      if (!data) {
         posSound.playWarning()
         setVoucherError('Kode voucher tidak ditemukan atau tidak aktif.')
         return

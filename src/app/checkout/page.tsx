@@ -91,14 +91,26 @@ export default function CheckoutPage() {
     setVoucherError('')
 
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('vouchers')
         .select('*')
-        .eq('code', code)
+        .ilike('code', code)
         .eq('is_active', true)
-        .single()
+        .maybeSingle()
 
-      if (error || !data) {
+      if (!data) {
+        const { data: fuzzyList } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', `%${code}%`)
+          .eq('is_active', true)
+
+        if (fuzzyList && fuzzyList.length > 0) {
+          data = fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === code) || fuzzyList[0]
+        }
+      }
+
+      if (!data) {
         setVoucherError('Kode voucher tidak valid atau sudah tidak aktif.')
         setVoucherLoading(false)
         return

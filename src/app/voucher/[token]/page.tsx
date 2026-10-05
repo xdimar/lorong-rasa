@@ -127,6 +127,21 @@ function VoucherDetailContent({ token }: { token: string }) {
           foundVoucher = byCode
         }
 
+        if (!foundVoucher) {
+          // Fallback toleransi jika kode di database memiliki spasi ekstra (contoh: "GRANDOPENING ")
+          const { data: fuzzyCodes } = await supabase
+            .from('vouchers')
+            .select('*')
+            .ilike('code', `%${cleanToken}%`)
+
+          if (fuzzyCodes && fuzzyCodes.length > 0) {
+            const exactTrimmed = fuzzyCodes.find(
+              (v: VoucherRecord) => (v.code || '').trim().toUpperCase() === cleanToken.toUpperCase()
+            )
+            foundVoucher = exactTrimmed || fuzzyCodes[0]
+          }
+        }
+
         if (!foundVoucher && cleanToken.length === 36) {
           // Cari berdasarkan UUID id
           const { data: byId } = await supabase
@@ -143,6 +158,11 @@ function VoucherDetailContent({ token }: { token: string }) {
           setErrorMsg(`Voucher dengan tautan "${cleanToken}" tidak ditemukan atau sudah dihapus.`)
           setLoading(false)
           return
+        }
+
+        foundVoucher = {
+          ...foundVoucher,
+          code: foundVoucher.code.trim(),
         }
 
         setVoucher(foundVoucher)
