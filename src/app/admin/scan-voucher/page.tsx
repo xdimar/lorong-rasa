@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   QrCode,
   Search,
@@ -15,9 +16,12 @@ import {
   ShieldCheck,
   Store,
   Coffee,
+  Sparkles,
+  ArrowRight,
 } from 'lucide-react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+import { getOrDrawAwardedProduct } from '@/lib/voucher-draw'
 
 interface VoucherData {
   id: string
@@ -63,12 +67,15 @@ interface QrScannerInstance {
 }
 
 export default function ScanVoucherPage() {
+  const router = useRouter()
   const [cameraActive, setCameraActive] = useState(false)
   const [manualInput, setManualInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [redeemLoading, setRedeemLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
+  const [redirecting, setRedirecting] = useState(false)
+  const [redirectUrl, setRedirectUrl] = useState('')
   const [currentClaim, setCurrentClaim] = useState<ClaimedVoucher | null>(null)
   const [recentRedemptions, setRecentRedemptions] = useState<ClaimedVoucher[]>([])
   const [cashierUser, setCashierUser] = useState<SupabaseUser | null>(null)
@@ -236,6 +243,7 @@ export default function ScanVoucherPage() {
 
       let claimId: string | null = null
       let code: string | null = null
+      let awardedProductFromScan: string | null = null
       let rawIdentifier = text
 
       // 1. Ekstrak data jika input berupa URL (website share link atau paper QR)
@@ -243,6 +251,9 @@ export default function ScanVoucherPage() {
         try {
           const parsed = new URL(text.startsWith('http') ? text : `http://localhost${text.startsWith('/') ? '' : '/'}${text}`)
           const queryParam = parsed.searchParams.get('code') || parsed.searchParams.get('token') || parsed.searchParams.get('voucher')
+          const itemParam = parsed.searchParams.get('item') || parsed.searchParams.get('product')
+          if (itemParam) awardedProductFromScan = decodeURIComponent(itemParam).trim()
+
           if (queryParam) {
             rawIdentifier = queryParam.trim()
           } else {
@@ -261,13 +272,21 @@ export default function ScanVoucherPage() {
         const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
         claimId = parts[0]?.trim() || null
         code = parts[1]?.trim() || null
+        awardedProductFromScan = parts[2]?.trim() || null
       } else if (text.startsWith('VOUCHER:')) {
         const parts = text.replace('VOUCHER:', '').split('|')
         code = parts[0]?.trim() || null
+        awardedProductFromScan = parts[1]?.trim() || null
       } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
         claimId = text
       } else {
-        code = text.toUpperCase()
+        if (text.includes('|')) {
+          const parts = text.split('|')
+          code = parts[0]?.trim() || null
+          awardedProductFromScan = parts[1]?.trim() || null
+        } else {
+          code = text.toUpperCase()
+        }
       }
 
       const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
@@ -378,32 +397,7 @@ export default function ScanVoucherPage() {
         }
       }
 
-      // Langkah C: Hanya jika master vouchers tidak ditemukan, baru cek riwayat user_vouchers
-      if (!uvRecord && !voucherRecord && code) {
-        const cleanCode = code.trim()
-        let { data: byCodeList } = await supabase
-          .from('user_vouchers')
-          .select('*, vouchers(*)')
-          .ilike('voucher_code', cleanCode)
-          .order('claimed_at', { ascending: false })
-
-        if (!byCodeList || byCodeList.length === 0) {
-          const { data: fuzzyList } = await supabase
-            .from('user_vouchers')
-            .select('*, vouchers(*)')
-            .ilike('voucher_code', `%${cleanCode}%`)
-            .order('claimed_at', { ascending: false })
-          if (fuzzyList && fuzzyList.length > 0) {
-            byCodeList = fuzzyList
-          }
-        }
-
-        if (byCodeList && byCodeList.length > 0) {
-          uvRecord = byCodeList[0] as ClaimedVoucher
-        }
-      }
-
-      // Skenario 1: Ditemukan record di user_vouchers (klaim oleh member)
+      // Skenario 1: Ditemukan record di user_vouchers (klaim oleh member dengan claimId)
       if (uvRecord) {
         if (uvRecord.user_id && uvRecord.user_id !== 'walk-in-customer') {
           const { data: profile } = await supabase
@@ -414,7 +408,29 @@ export default function ScanVoucherPage() {
           uvRecord.profiles = profile || undefined
         }
         setCurrentClaim(uvRecord)
+
+        if (uvRecord.status === 'used') {
+          setErrorMsg(`⚠️ Voucher "${uvRecord.voucher_code}" sudah pernah digunakan pada ${uvRecord.used_at ? new Date(uvRecord.used_at).toLocaleString('id-ID') : 'transaksi sebelumnya'}.`)
+          setLoading(false)
+          return
+        }
+
+        // Voucher member valid: Arahkan langsung ke POS Kasir!
+        const vRec = uvRecord.vouchers
+        let targetAwarded = awardedProductFromScan
+        if (!targetAwarded && vRec?.discount_type === 'product' && vRec.product_name) {
+          targetAwarded = getOrDrawAwardedProduct(vRec.code, vRec.product_name) || vRec.product_name
+        }
+
+        const posUrl = `/admin/pos?voucher=${encodeURIComponent(uvRecord.voucher_code)}${targetAwarded ? `&item=${encodeURIComponent(targetAwarded)}` : ''}&claim_id=${encodeURIComponent(uvRecord.id)}`
+        setRedirectUrl(posUrl)
+        setRedirecting(true)
+        setSuccessMsg(`✅ Voucher ${uvRecord.voucher_code} VALID! Mengarahkan ke POS Kasir...`)
         setLoading(false)
+
+        setTimeout(() => {
+          router.push(posUrl)
+        }, 500)
         return
       }
 
@@ -440,6 +456,11 @@ export default function ScanVoucherPage() {
           return
         }
 
+        let targetAwarded = awardedProductFromScan
+        if (!targetAwarded && voucherRecord.discount_type === 'product' && voucherRecord.product_name) {
+          targetAwarded = getOrDrawAwardedProduct(voucherRecord.code, voucherRecord.product_name) || voucherRecord.product_name
+        }
+
         // Tampilkan sebagai tiket promo langsung di kasir
         const walkInClaim: ClaimedVoucher = {
           id: voucherRecord.id,
@@ -461,7 +482,15 @@ export default function ScanVoucherPage() {
         }
 
         setCurrentClaim(walkInClaim)
+        const posUrl = `/admin/pos?voucher=${encodeURIComponent(voucherRecord.code)}${targetAwarded ? `&item=${encodeURIComponent(targetAwarded)}` : ''}`
+        setRedirectUrl(posUrl)
+        setRedirecting(true)
+        setSuccessMsg(`✅ Voucher ${voucherRecord.code} VALID! Mengarahkan ke POS Kasir...`)
         setLoading(false)
+
+        setTimeout(() => {
+          router.push(posUrl)
+        }, 500)
         return
       }
 
@@ -735,6 +764,48 @@ export default function ScanVoucherPage() {
             }}>
               <CheckCircle2 size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
               <div>{successMsg}</div>
+            </div>
+          )}
+
+          {redirecting && redirectUrl && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(74, 158, 106, 0.18), rgba(212, 160, 74, 0.18))',
+                border: '1.5px solid #4a9e6a',
+                borderRadius: '12px',
+                padding: '1rem 1.25rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={22} style={{ color: '#4a9e6a', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 800, color: '#4a9e6a', fontSize: '0.92rem' }}>
+                    🚀 Mengalihkan ke POS Kasir...
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                    Menu hadiah & potongan voucher langsung dimasukkan ke pesanan kasir.
+                  </div>
+                </div>
+              </div>
+              <Link
+                href={redirectUrl}
+                className="btn-primary"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '0.82rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Buka POS Kasir <ArrowRight size={14} />
+              </Link>
             </div>
           )}
 

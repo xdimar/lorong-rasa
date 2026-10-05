@@ -52,7 +52,7 @@ export function PhysicalVoucherModal({
     (typeof window !== 'undefined' ? window.location.origin : 'https://www.lorong-rasa.my.id')
   const cleanCode = (voucher.code || '').trim().toUpperCase()
   const shareToken = voucher.share_token || cleanCode
-  const shareUrl = `${baseUrl}/voucher/${encodeURIComponent(shareToken)}`
+  const shareUrl = `${baseUrl}/voucher/${encodeURIComponent(shareToken)}${awardedProduct ? `?item=${encodeURIComponent(awardedProduct)}` : ''}`
 
   // Tentukan judul diskon & subjudul hadiah
   let headlineValue = ''

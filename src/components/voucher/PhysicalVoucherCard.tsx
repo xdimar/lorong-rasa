@@ -69,9 +69,18 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
         })
       : 'Berlaku Selamanya'
 
+    const targetName = awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : productName) || null
+    const baseShareUrl = shareUrl || `https://www.lorong-rasa.my.id/voucher/${cleanCode}`
+    const itemParam = targetName ? `?item=${encodeURIComponent(targetName)}` : ''
+    const fullShareUrlWithItem = baseShareUrl.includes('item=')
+      ? baseShareUrl
+      : baseShareUrl.includes('?')
+      ? `${baseShareUrl}${targetName ? `&item=${encodeURIComponent(targetName)}` : ''}`
+      : `${baseShareUrl}${itemParam}`
+
     const qrValue = userClaimId
-      ? `VOUCHER_CLAIM:${userClaimId}|${cleanCode}`
-      : shareUrl || `https://www.lorong-rasa.my.id/voucher/${cleanCode}`
+      ? `VOUCHER_CLAIM:${userClaimId}|${cleanCode}${targetName ? `|${targetName}` : ''}`
+      : `VOUCHER:${cleanCode}${targetName ? `|${targetName}` : ''}`
 
     return (
       <div

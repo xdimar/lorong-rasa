@@ -433,8 +433,20 @@ function VoucherDetailContent({ token }: { token: string }) {
     return voucher ? parseProductPool(voucher.product_name) : { isPool: false, items: [], count: 0 }
   }, [voucher])
 
+  const effectiveAwardedName = useMemo(() => {
+    return awardedItemName || (voucher?.discount_type === 'product' ? voucher.product_name : null)
+  }, [awardedItemName, voucher])
+
+  const qrPayload = useMemo(() => {
+    if (!voucher) return ''
+    const itemSuffix = effectiveAwardedName ? `|${effectiveAwardedName}` : ''
+    return userClaimId
+      ? `VOUCHER_CLAIM:${userClaimId}|${voucher.code}${itemSuffix}`
+      : `VOUCHER:${voucher.code}${itemSuffix}`
+  }, [voucher, userClaimId, effectiveAwardedName])
+
   const awardedProductInfo = useMemo(() => {
-    const name = awardedItemName || (voucher?.discount_type === 'product' ? voucher.product_name : null)
+    const name = effectiveAwardedName
     if (!name) return null
     return (
       menuItems.find((m) => m.name.toLowerCase() === name.toLowerCase()) || {
@@ -445,7 +457,7 @@ function VoucherDetailContent({ token }: { token: string }) {
         image_url: null,
       }
     )
-  }, [awardedItemName, voucher, menuItems])
+  }, [effectiveAwardedName, voucher, menuItems])
 
   // Tombol 1: Tukarkan Langsung Checkout di Website (Online)
   const handleDirectOnlineCheckout = () => {
@@ -1059,7 +1071,7 @@ function VoucherDetailContent({ token }: { token: string }) {
                             title="Perbesar QR"
                           >
                             <QRCodeSVG
-                              value={userClaimId ? `VOUCHER_CLAIM:${userClaimId}|${voucher.code}` : `VOUCHER:${voucher.code}`}
+                              value={qrPayload}
                               size={38}
                               bgColor="#ffffff"
                               fgColor="#1a1412"
@@ -1319,7 +1331,7 @@ function VoucherDetailContent({ token }: { token: string }) {
               }}
             >
               <QRCodeSVG
-                value={userClaimId ? `VOUCHER_CLAIM:${userClaimId}|${voucher.code}` : `VOUCHER:${voucher.code}`}
+                value={qrPayload}
                 size={150}
                 bgColor="#f9f9f9"
                 fgColor="#1a1412"

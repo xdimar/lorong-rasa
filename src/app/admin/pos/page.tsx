@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Search,
   ShoppingCart,
@@ -27,6 +27,8 @@ import {
   Sparkles,
   X,
   User,
+  Camera,
+  CameraOff,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { posSound } from '@/lib/sound'
@@ -38,6 +40,18 @@ import {
 } from '@/lib/constants/menu'
 import { ReceiptModal, ReceiptOrder, ReceiptItem } from '@/components/admin/ReceiptModal'
 import { calculatePointsEarned, getLoyaltyTier, awardLoyaltyPointsForOrder } from '@/lib/loyalty'
+import { getOrDrawAwardedProduct } from '@/lib/voucher-draw'
+
+export interface AppliedVoucherState {
+  code: string
+  discount: number
+  discount_type?: 'percentage' | 'fixed' | 'product'
+  discount_value?: number
+  min_order?: number
+  product_name?: string | null
+  menu_item_id?: string | null
+  claim_id?: string | null
+}
 
 interface CartItem {
   menuItem: MenuItem
@@ -81,8 +95,10 @@ export default function CashierPOSPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'qris'>('cash')
   const [cashReceived, setCashReceived] = useState<number>(0)
   const [voucherCodeInput, setVoucherCodeInput] = useState('')
-  const [appliedVoucher, setAppliedVoucher] = useState<{ code: string; discount: number } | null>(null)
+  const [appliedVoucher, setAppliedVoucher] = useState<AppliedVoucherState | null>(null)
   const [voucherError, setVoucherError] = useState('')
+  const [posScannerOpen, setPosScannerOpen] = useState(false)
+  const posScannerRef = useRef<any>(null)
 
   // Receipt Options & Modal
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(true)
@@ -99,6 +115,303 @@ export default function CashierPOSPage() {
   const [soundEnabled, setSoundEnabled] = useState(true)
 
   const supabase = useMemo(() => createClient(), [])
+
+  // Voucher Redemption & Auto Gift Addition
+  const applyVoucherToPOS = async (
+    rawCode: string,
+    rawItem?: string | null,
+    claimId?: string | null,
+    menuList?: MenuItem[]
+  ) => {
+    if (!rawCode.trim()) return
+    const cleanCode = rawCode.trim().toUpperCase()
+    setVoucherCodeInput(cleanCode)
+    setVoucherError('')
+
+    const currentMenuList = menuList && menuList.length > 0 ? menuList : items
+
+    try {
+      let { data } = await supabase
+        .from('vouchers')
+        .select('*')
+        .ilike('code', cleanCode)
+        .maybeSingle()
+
+      if (!data) {
+        const { data: fuzzyList } = await supabase
+          .from('vouchers')
+          .select('*')
+          .ilike('code', `%${cleanCode}%`)
+
+        if (fuzzyList && fuzzyList.length > 0) {
+          data =
+            fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === cleanCode) ||
+            fuzzyList[0]
+        }
+      }
+
+      if (!data) {
+        posSound.playWarning()
+        setVoucherError(`Kode voucher "${cleanCode}" tidak ditemukan.`)
+        return
+      }
+
+      if (!data.is_active) {
+        posSound.playWarning()
+        setVoucherError(`Voucher "${cleanCode}" sedang tidak aktif.`)
+        return
+      }
+
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        posSound.playWarning()
+        setVoucherError(`Voucher "${cleanCode}" sudah kedaluwarsa.`)
+        return
+      }
+
+      const isQuotaFull = (data.max_uses || 0) > 0 && (data.current_uses || 0) >= (data.max_uses || 0)
+      if (isQuotaFull) {
+        posSound.playWarning()
+        setVoucherError(`Kuota penggunaan voucher "${cleanCode}" sudah habis.`)
+        return
+      }
+
+      // === TIPE PRODUK ===
+      if (data.discount_type === 'product') {
+        let targetItemName = rawItem ? decodeURIComponent(rawItem).trim() : null
+        if (!targetItemName && data.product_name) {
+          targetItemName = getOrDrawAwardedProduct(data.code, data.product_name) || data.product_name
+        }
+
+        let foundMenu: MenuItem | undefined
+
+        if (data.product_menu_item_id) {
+          foundMenu = currentMenuList.find((m) => m.id === data.product_menu_item_id)
+        }
+
+        if (!foundMenu && targetItemName) {
+          const targetLower = targetItemName.toLowerCase()
+          foundMenu = currentMenuList.find((m) => m.name.toLowerCase() === targetLower)
+          if (!foundMenu) {
+            foundMenu = currentMenuList.find(
+              (m) => m.name.toLowerCase().includes(targetLower) || targetLower.includes(m.name.toLowerCase())
+            )
+          }
+        }
+
+        if (!foundMenu && data.product_name) {
+          const poolItems = data.product_name.split(',').map((s: string) => s.trim().toLowerCase())
+          foundMenu = currentMenuList.find((m) =>
+            poolItems.some((p: string) => m.name.toLowerCase().includes(p) || p.includes(m.name.toLowerCase()))
+          )
+        }
+
+        if (foundMenu) {
+          // Masukkan item hadiah ke keranjang jika belum ada
+          setCart((prev) => {
+            const exists = prev.find((c) => c.menuItem.id === foundMenu!.id)
+            if (exists) return prev
+            return [
+              ...prev,
+              {
+                menuItem: foundMenu!,
+                quantity: 1,
+                notes: `🎁 Hadiah Voucher ${data.code}`,
+              },
+            ]
+          })
+
+          const calculatedDisc = Math.round((foundMenu.price * Number(data.discount_value || 100)) / 100)
+
+          setAppliedVoucher({
+            code: data.code,
+            discount: calculatedDisc,
+            discount_type: 'product',
+            discount_value: Number(data.discount_value || 100),
+            product_name: foundMenu.name,
+            menu_item_id: foundMenu.id,
+            claim_id: claimId || null,
+          })
+
+          posSound.playSuccess()
+          setSuccessToast(
+            `🎁 Voucher ${data.code} Aktif! Menu Hadiah "${foundMenu.name}" otomatis masuk ke keranjang kasir (Diskon ${data.discount_value}%).`
+          )
+          setTimeout(() => setSuccessToast(null), 5000)
+        } else {
+          setAppliedVoucher({
+            code: data.code,
+            discount: 0,
+            discount_type: 'product',
+            discount_value: Number(data.discount_value || 100),
+            product_name: targetItemName || data.product_name,
+            claim_id: claimId || null,
+          })
+          posSound.playWarning()
+          setVoucherError(`Menu hadiah "${targetItemName || data.product_name}" belum terdaftar di menu kasir aktif.`)
+        }
+      } else if (data.discount_type === 'percentage') {
+        const disc = Math.round((subtotal * Number(data.discount_value)) / 100)
+        setAppliedVoucher({
+          code: data.code,
+          discount: disc,
+          discount_type: 'percentage',
+          discount_value: Number(data.discount_value),
+          min_order: Number(data.min_order || 0),
+          claim_id: claimId || null,
+        })
+        posSound.playAddToCart()
+        setSuccessToast(`🎉 Voucher Diskon ${data.discount_value}% Berhasil Diterapkan!`)
+        setTimeout(() => setSuccessToast(null), 4000)
+      } else {
+        const disc = Number(data.discount_value)
+        setAppliedVoucher({
+          code: data.code,
+          discount: disc,
+          discount_type: 'fixed',
+          discount_value: Number(data.discount_value),
+          min_order: Number(data.min_order || 0),
+          claim_id: claimId || null,
+        })
+        posSound.playAddToCart()
+        setSuccessToast(`🎉 Potongan Rp ${Number(data.discount_value).toLocaleString('id-ID')} Berhasil Diterapkan!`)
+        setTimeout(() => setSuccessToast(null), 4000)
+      }
+    } catch (err) {
+      console.error(err)
+      posSound.playWarning()
+      setVoucherError('Gagal memvalidasi voucher.')
+    }
+  }
+
+  const handleApplyVoucher = () => {
+    applyVoucherToPOS(voucherCodeInput, null, null, items)
+  }
+
+  const removeVoucher = () => {
+    posSound.playRemove()
+    setAppliedVoucher(null)
+    setVoucherCodeInput('')
+    setVoucherError('')
+  }
+
+  const handleScanDecodeForPOS = (rawText: string) => {
+    const text = rawText.trim()
+    if (!text) return
+
+    let claimId: string | null = null
+    let code: string | null = null
+    let awardedProduct: string | null = null
+
+    if (text.startsWith('http://') || text.startsWith('https://') || text.includes('/voucher')) {
+      try {
+        const parsed = new URL(text.startsWith('http') ? text : `http://localhost${text.startsWith('/') ? '' : '/'}${text}`)
+        const queryParam = parsed.searchParams.get('code') || parsed.searchParams.get('token') || parsed.searchParams.get('voucher')
+        const itemParam = parsed.searchParams.get('item') || parsed.searchParams.get('product')
+        if (itemParam) awardedProduct = decodeURIComponent(itemParam).trim()
+        if (queryParam) {
+          code = queryParam.trim().toUpperCase()
+        } else {
+          const match = parsed.pathname.match(/\/voucher\/([^/?#]+)/)
+          if (match && match[1]) {
+            code = decodeURIComponent(match[1]).trim().toUpperCase()
+          }
+        }
+      } catch {
+        const match = text.match(/\/voucher\/([^/?#]+)/)
+        if (match && match[1]) {
+          code = decodeURIComponent(match[1]).trim().toUpperCase()
+        }
+      }
+    } else if (text.startsWith('VOUCHER_CLAIM:')) {
+      const parts = text.replace('VOUCHER_CLAIM:', '').split('|')
+      claimId = parts[0]?.trim() || null
+      code = parts[1]?.trim()?.toUpperCase() || null
+      awardedProduct = parts[2]?.trim() || null
+    } else if (text.startsWith('VOUCHER:')) {
+      const parts = text.replace('VOUCHER:', '').split('|')
+      code = parts[0]?.trim()?.toUpperCase() || null
+      awardedProduct = parts[1]?.trim() || null
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+      claimId = text
+      code = text
+    } else {
+      if (text.includes('|')) {
+        const parts = text.split('|')
+        code = parts[0]?.trim()?.toUpperCase() || null
+        awardedProduct = parts[1]?.trim() || null
+      } else {
+        code = text.toUpperCase()
+      }
+    }
+
+    if (code) {
+      applyVoucherToPOS(code, awardedProduct, claimId, items)
+    }
+  }
+
+  // Effect kamera scanner HTML5-QRCode untuk POS Kasir
+  useEffect(() => {
+    let active = true
+
+    if (posScannerOpen) {
+      setTimeout(async () => {
+        try {
+          const { Html5Qrcode } = await import('html5-qrcode')
+          const elem = document.getElementById('pos-camera-view')
+          if (!elem || !active) return
+
+          if (posScannerRef.current) {
+            try {
+              if (posScannerRef.current.isScanning) await posScannerRef.current.stop()
+              posScannerRef.current.clear()
+            } catch {}
+          }
+
+          const scanner = new Html5Qrcode('pos-camera-view')
+          posScannerRef.current = scanner
+
+          await scanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1.0 },
+            (decodedText) => {
+              if (!active) return
+              try {
+                if (scanner.isScanning) scanner.stop().catch(() => {})
+                scanner.clear()
+              } catch {}
+              posScannerRef.current = null
+              setPosScannerOpen(false)
+              handleScanDecodeForPOS(decodedText)
+            },
+            () => {}
+          )
+        } catch (e) {
+          console.error('POS camera error:', e)
+          alert('Gagal mengakses kamera. Pastikan izin kamera aktif di browser.')
+          setPosScannerOpen(false)
+        }
+      }, 150)
+    } else {
+      if (posScannerRef.current) {
+        try {
+          if (posScannerRef.current.isScanning) posScannerRef.current.stop().catch(() => {})
+          posScannerRef.current.clear()
+        } catch {}
+        posScannerRef.current = null
+      }
+    }
+
+    return () => {
+      active = false
+      if (posScannerRef.current) {
+        try {
+          if (posScannerRef.current.isScanning) posScannerRef.current.stop().catch(() => {})
+          posScannerRef.current.clear()
+        } catch {}
+        posScannerRef.current = null
+      }
+    }
+  }, [posScannerOpen])
 
   // 1. Fetch Menu Items & Cashier Profile + Realtime Stock Subscription
   useEffect(() => {
@@ -148,9 +461,17 @@ export default function CashierPOSPage() {
         }
 
         if (typeof window !== 'undefined') {
-          const vParam = new URLSearchParams(window.location.search).get('voucher')
+          const urlParams = new URLSearchParams(window.location.search)
+          const vParam = urlParams.get('voucher')
+          const itemParam = urlParams.get('item')
+          const claimParam = urlParams.get('claim_id')
           if (vParam) {
-            setVoucherCodeInput(vParam.toUpperCase())
+            applyVoucherToPOS(
+              vParam,
+              itemParam,
+              claimParam,
+              menuData && menuData.length > 0 ? menuData : defaultMenuItems
+            )
           }
         }
       } catch (err) {
@@ -217,7 +538,29 @@ export default function CashierPOSPage() {
     return cart.reduce((acc, it) => acc + it.quantity, 0)
   }, [cart])
 
-  const discountAmount = appliedVoucher ? appliedVoucher.discount : 0
+  const discountAmount = useMemo(() => {
+    if (!appliedVoucher) return 0
+    if (appliedVoucher.min_order && subtotal < appliedVoucher.min_order) return 0
+
+    if (appliedVoucher.discount_type === 'percentage') {
+      return Math.round((subtotal * (appliedVoucher.discount_value || 0)) / 100)
+    } else if (appliedVoucher.discount_type === 'product') {
+      const targetItem = cart.find(
+        (c) =>
+          (appliedVoucher.menu_item_id && c.menuItem.id === appliedVoucher.menu_item_id) ||
+          (appliedVoucher.product_name &&
+            (c.menuItem.name.toLowerCase() === appliedVoucher.product_name.toLowerCase() ||
+              c.menuItem.name.toLowerCase().includes(appliedVoucher.product_name.toLowerCase()) ||
+              appliedVoucher.product_name.toLowerCase().includes(c.menuItem.name.toLowerCase())))
+      )
+      if (targetItem) {
+        return Math.round((targetItem.menuItem.price * (appliedVoucher.discount_value || 100)) / 100)
+      }
+      return 0
+    } else {
+      return Math.min(appliedVoucher.discount, subtotal)
+    }
+  }, [appliedVoucher, subtotal, cart])
   const grandTotal = Math.max(0, subtotal - discountAmount)
   const changeAmount = paymentMethod === 'cash' ? Math.max(0, cashReceived - grandTotal) : 0
   const isCashSufficient = paymentMethod === 'cash' ? cashReceived >= grandTotal : true
@@ -282,72 +625,6 @@ export default function CashierPOSPage() {
     }
   }
 
-  // 4. Voucher Redemption
-  const handleApplyVoucher = async () => {
-    if (!voucherCodeInput.trim()) return
-    setVoucherError('')
-    try {
-      const cleanCode = voucherCodeInput.trim().toUpperCase()
-      let { data, error } = await supabase
-        .from('vouchers')
-        .select('*')
-        .ilike('code', cleanCode)
-        .eq('is_active', true)
-        .maybeSingle()
-
-      if (!data) {
-        const { data: fuzzyList } = await supabase
-          .from('vouchers')
-          .select('*')
-          .ilike('code', `%${cleanCode}%`)
-          .eq('is_active', true)
-
-        if (fuzzyList && fuzzyList.length > 0) {
-          data = fuzzyList.find((v: { code?: string }) => (v.code || '').trim().toUpperCase() === cleanCode) || fuzzyList[0]
-        }
-      }
-
-      if (!data) {
-        posSound.playWarning()
-        setVoucherError('Kode voucher tidak ditemukan atau tidak aktif.')
-        return
-      }
-
-      if (data.expires_at && new Date(data.expires_at) < new Date()) {
-        posSound.playWarning()
-        setVoucherError('Voucher sudah kedaluwarsa.')
-        return
-      }
-
-      if (data.min_order && subtotal < data.min_order) {
-        posSound.playWarning()
-        setVoucherError(`Minimal order Rp ${Number(data.min_order).toLocaleString('id-ID')} untuk voucher ini.`)
-        return
-      }
-
-      let disc = 0
-      if (data.discount_type === 'percentage') {
-        disc = Math.round((subtotal * Number(data.discount_value)) / 100)
-      } else {
-        disc = Number(data.discount_value)
-      }
-      disc = Math.min(disc, subtotal)
-
-      posSound.playAddToCart()
-      setAppliedVoucher({ code: data.code, discount: disc })
-      setVoucherError('')
-    } catch {
-      posSound.playWarning()
-      setVoucherError('Gagal memvalidasi voucher.')
-    }
-  }
-
-  const removeVoucher = () => {
-    posSound.playRemove()
-    setAppliedVoucher(null)
-    setVoucherCodeInput('')
-    setVoucherError('')
-  }
 
   // Member Search Handlers
   const handleSearchMembers = async (queryText: string) => {
@@ -483,6 +760,41 @@ export default function CashierPOSPage() {
       if (itemsErr) {
         console.error('Order items insert error:', itemsErr)
         alert(`Pesanan #${orderId.slice(0, 8)} berhasil dicatat, namun item pesanan gagal tersimpan: ${itemsErr.message}`)
+      }
+
+      // Update voucher usage in database:
+      if (appliedVoucher?.claim_id) {
+        supabase
+          .from('user_vouchers')
+          .update({
+            status: 'used',
+            used_via: 'offline_cashier',
+            used_at: new Date().toISOString(),
+          })
+          .eq('id', appliedVoucher.claim_id)
+          .then((res: { error: unknown }) => {
+            if (res.error) console.error('Error updating user_vouchers status:', res.error)
+          })
+      }
+
+      if (appliedVoucher?.code) {
+        supabase
+          .from('vouchers')
+          .select('id, current_uses')
+          .ilike('code', appliedVoucher.code)
+          .maybeSingle()
+          .then((res: { data: { id: string; current_uses?: number | null } | null }) => {
+            const vRec = res.data
+            if (vRec) {
+              supabase
+                .from('vouchers')
+                .update({ current_uses: (vRec.current_uses || 0) + 1 })
+                .eq('id', vRec.id)
+                .then((updateRes: { error: unknown }) => {
+                  if (updateRes.error) console.error('Error incrementing voucher uses:', updateRes.error)
+                })
+            }
+          })
       }
 
       // 3. Award Loyalty Points if member is linked
@@ -1616,7 +1928,7 @@ export default function CashierPOSPage() {
                   type="text"
                   value={voucherCodeInput}
                   onChange={(e) => setVoucherCodeInput(e.target.value.toUpperCase())}
-                  placeholder="Kode Voucher (opsional)"
+                  placeholder="Kode Voucher..."
                   style={{
                     flex: 1,
                     background: 'var(--color-bg-card)',
@@ -1634,7 +1946,7 @@ export default function CashierPOSPage() {
                   onClick={handleApplyVoucher}
                   disabled={!voucherCodeInput.trim()}
                   style={{
-                    padding: '0.4rem 0.85rem',
+                    padding: '0.4rem 0.75rem',
                     borderRadius: '6px',
                     background: 'var(--color-primary)',
                     color: '#ffffff',
@@ -1643,24 +1955,66 @@ export default function CashierPOSPage() {
                     fontWeight: 700,
                     cursor: voucherCodeInput.trim() ? 'pointer' : 'default',
                     opacity: voucherCodeInput.trim() ? 1 : 0.6,
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   Terapkan
                 </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#4a9e6a', fontWeight: 700 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Tag size={13} />
-                  Voucher: {appliedVoucher.code} (-Rp {appliedVoucher.discount.toLocaleString('id-ID')})
-                </span>
                 <button
                   type="button"
-                  onClick={removeVoucher}
-                  style={{ background: 'none', border: 'none', color: '#e85a4a', cursor: 'pointer', fontSize: '0.75rem' }}
+                  onClick={() => setPosScannerOpen(true)}
+                  title="Scan Barcode / QR Voucher Pelanggan"
+                  style={{
+                    padding: '0.4rem 0.65rem',
+                    borderRadius: '6px',
+                    background: 'var(--color-bg-card)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-primary)',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  Hapus
+                  <Camera size={13} />
+                  Scan
                 </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#4a9e6a', fontWeight: 700 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Tag size={13} />
+                    Voucher: {appliedVoucher.code} (-Rp {discountAmount.toLocaleString('id-ID')})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={removeVoucher}
+                    style={{ background: 'none', border: 'none', color: '#e85a4a', cursor: 'pointer', fontSize: '0.75rem' }}
+                  >
+                    Hapus
+                  </button>
+                </div>
+                {appliedVoucher.discount_type === 'product' && appliedVoucher.product_name && (
+                  <div style={{
+                    fontSize: '0.72rem',
+                    color: 'var(--color-primary)',
+                    background: 'rgba(201, 100, 39, 0.12)',
+                    border: '1px solid rgba(201, 100, 39, 0.25)',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontWeight: 700,
+                  }}>
+                    <Sparkles size={12} />
+                    <span>Hadiah: {appliedVoucher.product_name} (Diskon {appliedVoucher.discount_value}%)</span>
+                  </div>
+                )}
               </div>
             )}
             {voucherError && (
@@ -2154,6 +2508,79 @@ export default function CashierPOSPage() {
                 Tutup
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Scanner Barcode / QR Kasir */}
+      {posScannerOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '1rem',
+          }}
+          onClick={() => setPosScannerOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--color-bg-card)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-xl)',
+              maxWidth: '440px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: 'var(--shadow-xl)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <QrCode size={20} style={{ color: 'var(--color-primary)' }} />
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, fontFamily: 'var(--font-playfair)' }}>
+                  Scan Voucher Pelanggan
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPosScannerOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--color-text-muted)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                width: '100%',
+                minHeight: '260px',
+                background: '#000000',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                position: 'relative',
+              }}
+            >
+              <div id="pos-camera-view" style={{ width: '100%', minHeight: '260px' }} />
+            </div>
+
+            <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', textAlign: 'center', margin: 0, fontFamily: 'var(--font-inter)' }}>
+              Arahkan kamera ke QR Code atau Barcode voucher di layar HP pelanggan. Menu hadiah akan langsung masuk ke pesanan kasir.
+            </p>
           </div>
         </div>
       )}
