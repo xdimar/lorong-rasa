@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { PhysicalVoucherCard } from './PhysicalVoucherCard'
 import { generateBarcodeBars } from './BarcodeSVG'
+import { parseProductPool } from '@/lib/voucher-draw'
 
 export interface PhysicalVoucherModalProps {
   isOpen: boolean
@@ -54,6 +55,11 @@ export function PhysicalVoucherModal({
   const shareToken = voucher.share_token || cleanCode
   const shareUrl = `${baseUrl}/voucher/${encodeURIComponent(shareToken)}${awardedProduct ? `?item=${encodeURIComponent(awardedProduct)}` : ''}`
 
+  // Deteksi multi-menu dari voucher
+  const pool = parseProductPool(voucher.product_name)
+  const allPoolItems = pool.items.length > 0 ? pool.items : productPoolItems
+  const isMultiItem = !awardedProduct && allPoolItems.length > 1
+
   // Tentukan judul diskon & subjudul hadiah
   let headlineValue = ''
   let subHeadline = ''
@@ -65,21 +71,37 @@ export function PhysicalVoucherModal({
     headlineValue = `Rp ${(voucher.discount_value / 1000).toFixed(0)}K OFF`
     subHeadline = `Potongan langsung Rp ${voucher.discount_value.toLocaleString('id-ID')}`
   } else {
-    const targetItem =
-      awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : voucher.product_name) || 'Menu Pilihan'
     headlineValue = voucher.discount_value === 100 ? 'GRATIS 100%' : `DISKON ${voucher.discount_value}%`
-    subHeadline = `Menu: ${targetItem}`
+    if (awardedProduct) {
+      subHeadline = `Menu: ${awardedProduct}`
+    } else if (isMultiItem) {
+      subHeadline =
+        allPoolItems.length === 2
+          ? `Pilihan 2 Menu: ${allPoolItems[0]} atau ${allPoolItems[1]}`
+          : `Pilihan ${allPoolItems.length} Menu Spesifik`
+    } else {
+      const singleItem = allPoolItems[0] || voucher.product_name || 'Menu Pilihan'
+      subHeadline = `Menu: ${singleItem}`
+    }
   }
 
   const benefitText = `${headlineValue} (${subHeadline})`
 
-  // Teks WhatsApp yang sangat ringkas & to-the-point
+  // Teks WhatsApp yang sangat ringkas, rapi & to-the-point
   const handleShareWhatsApp = () => {
+    let menuDetails = ''
+    if (isMultiItem) {
+      const preview = allPoolItems.slice(0, 4).join(', ')
+      const more = allPoolItems.length > 4 ? ` (+${allPoolItems.length - 4} lainnya)` : ''
+      menuDetails = `📋 *Daftar Menu:* ${preview}${more}\n`
+    }
+
     const text =
       `🎟️ *VOUCHER LORONG RASA*\n` +
       `Kode: *${cleanCode}*\n` +
-      `🎁 Promo: *${benefitText}*\n\n` +
-      `📲 *Buka barcode & klaim di sini:*\n` +
+      `🎁 Promo: *${benefitText}*\n` +
+      menuDetails +
+      `\n📲 *Buka barcode & klaim di sini:*\n` +
       `${shareUrl}`
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
@@ -288,10 +310,50 @@ export function PhysicalVoucherModal({
 
       // Subheadline / Rincian Menu
       ctx.fillStyle = '#3d2b1f'
-      drawFittedText(`🏷️ ${subHeadline}`, width / 2, cardY + headerH + 196, cardW - 90, 24, 'sans-serif')
+      drawFittedText(`🏷️ ${subHeadline}`, width / 2, cardY + headerH + 192, cardW - 90, 24, 'sans-serif')
+
+      // Render Badge Chips yang Rapi & Profesional jika Multi Menu
+      let codeBoxOffset = 235
+      if (isMultiItem && allPoolItems.length > 0) {
+        const displayChips =
+          allPoolItems.length <= 4
+            ? allPoolItems
+            : [...allPoolItems.slice(0, 3), `+${allPoolItems.length - 3} lainnya`]
+
+        ctx.font = 'bold 15px sans-serif'
+        const chipPad = 22
+        const chipGap = 10
+        const chipH = 32
+        const chipWidths = displayChips.map((c) => ctx.measureText(c).width + chipPad)
+        const totalW = chipWidths.reduce((a, b) => a + b, 0) + (displayChips.length - 1) * chipGap
+
+        let cx = (width - totalW) / 2
+        const chipY = cardY + headerH + 214
+
+        for (let i = 0; i < displayChips.length; i++) {
+          const cw = chipWidths[i]
+          const isMore = displayChips[i].startsWith('+')
+
+          drawRoundRect(cx, chipY, cw, chipH, 8)
+          ctx.fillStyle = isMore ? 'rgba(201, 100, 39, 0.12)' : '#efe7da'
+          ctx.fill()
+          ctx.strokeStyle = isMore ? '#c96427' : 'rgba(196, 122, 46, 0.35)'
+          ctx.lineWidth = 1.2
+          ctx.stroke()
+
+          ctx.fillStyle = isMore ? '#c96427' : '#54361c'
+          ctx.font = 'bold 15px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.fillText(displayChips[i], cx + cw / 2, chipY + 21)
+
+          cx += cw + chipGap
+        }
+
+        codeBoxOffset = 262
+      }
 
       // 8. Box Stempel Kode Voucher
-      const codeBoxY = cardY + headerH + 235
+      const codeBoxY = cardY + headerH + codeBoxOffset
       const codeBoxH = 110
       const codeBoxW = cardW - 80
       const codeBoxX = cardX + 40
@@ -416,6 +478,16 @@ export function PhysicalVoucherModal({
         ? ` • Min. belanja: Rp ${(voucher.min_order || 0).toLocaleString('id-ID')}`
         : ' • Tanpa minimum belanja'
       ctx.fillText(`${expiryText}${minOrderText}`, width / 2, termsY + 32)
+
+      if (isMultiItem) {
+        ctx.fillStyle = '#8c6b3e'
+        ctx.font = 'italic 16px sans-serif'
+        ctx.fillText(
+          `* Berlaku untuk salah satu dari ${allPoolItems.length} menu pilihan di atas`,
+          width / 2,
+          termsY + 60
+        )
+      }
 
       // 11. Footer Strip Mewah di bagian bawah kartu
       ctx.save()

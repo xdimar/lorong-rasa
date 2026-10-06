@@ -4,6 +4,7 @@ import React, { forwardRef } from 'react'
 import { Coffee, Tag, Sparkles, QrCode } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { BarcodeSVG } from './BarcodeSVG'
+import { parseProductPool } from '@/lib/voucher-draw'
 
 export interface PhysicalVoucherCardProps {
   code: string
@@ -44,6 +45,11 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
   ) {
     const cleanCode = (code || 'LORONG-RASA').toUpperCase().trim()
 
+    // Deteksi multi-menu dari voucher
+    const pool = parseProductPool(productName)
+    const allPoolItems = pool.items.length > 0 ? pool.items : productPoolItems
+    const isMultiItem = !awardedProduct && allPoolItems.length > 1
+
     // Tentukan label diskon & hadiah
     let headlineValue = ''
     let subHeadline = ''
@@ -55,10 +61,18 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
       headlineValue = `Rp ${(discountValue / 1000).toFixed(0)}K OFF`
       subHeadline = `Potongan langsung Rp ${discountValue.toLocaleString('id-ID')}`
     } else {
-      // product voucher
-      const targetName = awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : productName) || 'Menu Pilihan'
       headlineValue = discountValue === 100 ? 'GRATIS 100%' : `DISKON ${discountValue}%`
-      subHeadline = `Menu: ${targetName}`
+      if (awardedProduct) {
+        subHeadline = `Menu: ${awardedProduct}`
+      } else if (isMultiItem) {
+        subHeadline =
+          allPoolItems.length === 2
+            ? `Pilihan 2 Menu: ${allPoolItems[0]} atau ${allPoolItems[1]}`
+            : `Pilihan ${allPoolItems.length} Menu Spesifik`
+      } else {
+        const singleItem = allPoolItems[0] || productName || 'Menu Pilihan'
+        subHeadline = `Menu: ${singleItem}`
+      }
     }
 
     const expiryFormatted = expiresAt
@@ -69,18 +83,19 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
         })
       : 'Berlaku Selamanya'
 
-    const targetName = awardedProduct || (productPoolItems.length > 0 ? productPoolItems[0] : productName) || null
+    const singleEffectiveItem =
+      awardedProduct || (!isMultiItem && allPoolItems.length === 1 ? allPoolItems[0] : null)
     const baseShareUrl = shareUrl || `https://www.lorong-rasa.my.id/voucher/${cleanCode}`
-    const itemParam = targetName ? `?item=${encodeURIComponent(targetName)}` : ''
+    const itemParam = singleEffectiveItem ? `?item=${encodeURIComponent(singleEffectiveItem)}` : ''
     const fullShareUrlWithItem = baseShareUrl.includes('item=')
       ? baseShareUrl
       : baseShareUrl.includes('?')
-      ? `${baseShareUrl}${targetName ? `&item=${encodeURIComponent(targetName)}` : ''}`
+      ? `${baseShareUrl}${singleEffectiveItem ? `&item=${encodeURIComponent(singleEffectiveItem)}` : ''}`
       : `${baseShareUrl}${itemParam}`
 
     const qrValue = userClaimId
-      ? `VOUCHER_CLAIM:${userClaimId}|${cleanCode}${targetName ? `|${targetName}` : ''}`
-      : `VOUCHER:${cleanCode}${targetName ? `|${targetName}` : ''}`
+      ? `VOUCHER_CLAIM:${userClaimId}|${cleanCode}${singleEffectiveItem ? `|${singleEffectiveItem}` : ''}`
+      : `VOUCHER:${cleanCode}${singleEffectiveItem ? `|${singleEffectiveItem}` : ''}`
 
     return (
       <div
@@ -284,6 +299,51 @@ export const PhysicalVoucherCard = forwardRef<HTMLDivElement, PhysicalVoucherCar
               <Tag size={13} color="#c96427" />
               {subHeadline}
             </div>
+
+            {/* Chips Menu Pilihan yang Rapi & Elegan */}
+            {isMultiItem && allPoolItems.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  justifyContent: 'center',
+                  marginTop: '8px',
+                }}
+              >
+                {allPoolItems.slice(0, 3).map((item, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '3px 9px',
+                      borderRadius: '8px',
+                      background: '#efe7da',
+                      color: '#54361c',
+                      border: '1px solid rgba(196, 122, 46, 0.35)',
+                    }}
+                  >
+                    {item}
+                  </span>
+                ))}
+                {allPoolItems.length > 3 && (
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      padding: '3px 9px',
+                      borderRadius: '8px',
+                      background: 'rgba(201, 100, 39, 0.12)',
+                      color: '#c96427',
+                      border: '1px solid rgba(201, 100, 39, 0.3)',
+                    }}
+                  >
+                    +{allPoolItems.length - 3} lainnya
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Box Stempel Kode Voucher */}
