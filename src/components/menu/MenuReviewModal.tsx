@@ -209,7 +209,7 @@ export function MenuReviewModal({
           setIsAdminOrStaff(false)
         }
 
-        const data = await fetchReviewsByMenuItem(supabase, item.id, sortBy)
+        const data = await fetchReviewsByMenuItem(supabase, item.id, sortBy, item)
         setReviews(data)
       } catch (err) {
         console.error('Error fetching reviews:', err)

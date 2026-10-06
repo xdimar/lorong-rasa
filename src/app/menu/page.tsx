@@ -460,8 +460,8 @@ function MenuCard({
             title="Lihat ulasan pelanggan"
           >
             <Star size={11} style={{ fill: 'var(--color-gold)', color: 'var(--color-gold)' }} />
-            <span>{item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '4.9'}</span>
-            <span style={{ opacity: 0.75, fontSize: '0.65rem' }}>({item.rating_count || 12})</span>
+            <span>{item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '5.0'}</span>
+            <span style={{ opacity: 0.75, fontSize: '0.65rem' }}>({item.rating_count || 3})</span>
           </button>
         </div>
 

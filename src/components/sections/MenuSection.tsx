@@ -320,7 +320,7 @@ export function MenuSection() {
                       <div className="menu-card-rating-badge">
                         <Star size={10} fill="#f5a623" color="#f5a623" />
                         <span style={{ color: '#fff' }}>
-                          {item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '4.9'}
+                          {item.rating_avg && item.rating_avg > 0 ? item.rating_avg.toFixed(1) : '5.0'}
                         </span>
                       </div>
                     </div>
