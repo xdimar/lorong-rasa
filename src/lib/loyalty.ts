@@ -190,7 +190,26 @@ export async function awardLoyaltyPointsForOrder(
       return { success: true, pointsAwarded: 0 }
     }
 
-    // 1. Cek idempotency: apakah order ini sudah pernah dapat poin earned?
+    // 1. Coba eksekusi melalui PostgreSQL RPC (Atomik & Bypass Trigger RLS dengan aman)
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('award_order_loyalty_points', {
+      p_order_id: orderId,
+      p_user_id: userId,
+      p_total_amount: totalAmount,
+    })
+
+    if (!rpcErr && rpcData && typeof rpcData === 'object' && 'success' in rpcData) {
+      const typed = rpcData as { success: boolean; points_awarded?: number; new_points?: number; error?: string }
+      if (typed.success) {
+        return {
+          success: true,
+          pointsAwarded: typed.points_awarded ?? pointsToAward,
+          newTotalPoints: typed.new_points,
+        }
+      }
+    }
+
+    // 2. Fallback manual jika RPC belum terpasang di database remote
+    // Cek idempotency: apakah order ini sudah pernah dapat poin earned?
     const { data: existingTx } = await supabase
       .from('loyalty_transactions')
       .select('id')
@@ -202,7 +221,7 @@ export async function awardLoyaltyPointsForOrder(
       return { success: true, pointsAwarded: 0 } // Sudah pernah diberi poin
     }
 
-    // 2. Ambil poin saat ini
+    // Ambil poin saat ini
     const { data: profile } = await supabase
       .from('profiles')
       .select('loyalty_points')
@@ -212,7 +231,7 @@ export async function awardLoyaltyPointsForOrder(
     const currentPoints = profile?.loyalty_points ?? 0
     const newPoints = currentPoints + pointsToAward
 
-    // 3. Catat transaksi
+    // Catat transaksi
     await supabase.from('loyalty_transactions').insert({
       user_id: userId,
       points: pointsToAward,
@@ -221,7 +240,7 @@ export async function awardLoyaltyPointsForOrder(
       order_id: orderId,
     })
 
-    // 4. Update profile
+    // Update profile
     await supabase
       .from('profiles')
       .update({ loyalty_points: newPoints })
@@ -235,7 +254,7 @@ export async function awardLoyaltyPointsForOrder(
 }
 
 /**
- * Tukar poin dengan voucher hadiah
+ * Tukar poin dengan voucher hadiah secara atomik via RPC
  */
 export async function redeemLoyaltyReward(
   supabase: SupabaseClient,
@@ -243,7 +262,34 @@ export async function redeemLoyaltyReward(
   reward: LoyaltyReward
 ): Promise<{ success: boolean; newPoints?: number; voucherCode?: string; error?: string }> {
   try {
-    // 1. Ambil profil user terbaru
+    // 1. Coba eksekusi melalui PostgreSQL RPC redeem_loyalty_reward
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('redeem_loyalty_reward', {
+      p_reward_id: reward.id,
+      p_user_id: userId,
+    })
+
+    if (!rpcErr && rpcData && typeof rpcData === 'object' && 'success' in rpcData) {
+      const typed = rpcData as {
+        success: boolean
+        voucher_code?: string
+        new_points?: number
+        error?: string
+      }
+      if (typed.success) {
+        return {
+          success: true,
+          voucherCode: typed.voucher_code,
+          newPoints: typed.new_points,
+        }
+      } else {
+        return {
+          success: false,
+          error: typed.error || 'Gagal menukarkan reward.',
+        }
+      }
+    }
+
+    // 2. Fallback manual jika RPC belum diterapkan
     const { data: profile, error: pErr } = await supabase
       .from('profiles')
       .select('loyalty_points, full_name, email')
@@ -263,13 +309,10 @@ export async function redeemLoyaltyReward(
     }
 
     const newPoints = currentPoints - reward.points_required
-
-    // 2. Buat kode voucher unik: contoh POIN-7XK2M
     const uniqueSuffix = Math.random().toString(36).substring(2, 7).toUpperCase()
     const voucherCode = `POIN-${uniqueSuffix}`
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // Berlaku 30 hari
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    // 3. Buat voucher di tabel vouchers
     const { data: createdVoucher, error: vErr } = await supabase
       .from('vouchers')
       .insert({
@@ -290,7 +333,6 @@ export async function redeemLoyaltyReward(
       return { success: false, error: `Gagal menerbitkan voucher: ${vErr?.message || 'Error database'}` }
     }
 
-    // 4. Masukkan ke user_vouchers (langsung claimed untuk user ini)
     await supabase.from('user_vouchers').insert({
       user_id: userId,
       voucher_id: createdVoucher.id,
@@ -298,7 +340,6 @@ export async function redeemLoyaltyReward(
       status: 'claimed',
     })
 
-    // 5. Catat transaksi penukaran poin
     await supabase.from('loyalty_transactions').insert({
       user_id: userId,
       points: -reward.points_required,
@@ -307,7 +348,6 @@ export async function redeemLoyaltyReward(
       order_id: null,
     })
 
-    // 6. Update saldo poin di profile
     await supabase
       .from('profiles')
       .update({ loyalty_points: newPoints })

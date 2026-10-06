@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Search,
   ShoppingCart,
@@ -61,6 +62,8 @@ interface CartItem {
 }
 
 export default function CashierPOSPage() {
+  const router = useRouter()
+
   // Menu & Category States
   const [items, setItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<string[]>(defaultCategories)
@@ -363,6 +366,8 @@ export default function CashierPOSPage() {
     setAppliedVoucher(null)
     setVoucherCodeInput('')
     setVoucherError('')
+    // Bersihkan menu hadiah voucher jika sempat dimasukkan otomatis ke keranjang
+    setCart((prev) => prev.filter((c) => !c.notes?.includes('🎁 Hadiah Voucher')))
   }
 
   const handleScanDecodeForPOS = (rawText: string) => {
@@ -370,6 +375,25 @@ export default function CashierPOSPage() {
     if (!text) return
 
     const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
+
+    // Deteksi jika kasir memindai QR Pengambilan Pesanan di layar POS
+    if (text.startsWith('LORONG_RASA_ORDER:') || text.includes('/orders/')) {
+      let orderId = ''
+      if (text.startsWith('LORONG_RASA_ORDER:')) {
+        orderId = text.replace('LORONG_RASA_ORDER:', '').split('|')[0]?.trim() || ''
+      } else {
+        const m = text.match(/\/orders\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+        if (m) orderId = m[1]
+      }
+      if (orderId && isUuid(orderId)) {
+        posSound.playSuccess()
+        setSuccessToast(`📦 QR Pesanan #${orderId.slice(0, 8).toUpperCase()} terdeteksi! Mengalihkan ke data pesanan...`)
+        setTimeout(() => {
+          router.push(`/admin/orders?search=${encodeURIComponent(orderId)}&auto_open=1`)
+        }, 500)
+        return
+      }
+    }
 
     let claimId: string | null = null
     let code: string | null = null
@@ -734,11 +758,31 @@ export default function CashierPOSPage() {
     }
     setMemberSearching(true)
     try {
-      const q = queryText.trim()
+      // 1. Bersihkan karakter khusus yang dapat merusak sintaks query PostgREST (, \ ( ) ' " %)
+      const cleanText = queryText.replace(/['"\\(),%]/g, ' ').replace(/\s+/g, ' ').trim()
+      // 2. Ekstrak digit angka saja untuk pencarian nomor telepon yang fleksibel (misal: 0812-3456-7890)
+      const phoneDigits = queryText.replace(/\D/g, '')
+
+      if (!cleanText && phoneDigits.length < 3) {
+        setMemberSearchResults([])
+        setMemberSearching(false)
+        return
+      }
+
+      // 3. Bangun query .or() yang aman
+      const orClauses: string[] = []
+      if (cleanText) {
+        orClauses.push(`full_name.ilike.%${cleanText}%`)
+        orClauses.push(`email.ilike.%${cleanText}%`)
+      }
+      if (phoneDigits.length >= 3) {
+        orClauses.push(`phone.ilike.%${phoneDigits}%`)
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, email, phone, role, loyalty_points')
-        .or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+        .or(orClauses.join(','))
         .limit(8)
 
       if (!error && data) {
@@ -916,6 +960,7 @@ export default function CashierPOSPage() {
             status: 'used',
             used_via: 'offline_cashier',
             used_at: new Date().toISOString(),
+            order_id: orderId,
           })
           .eq('id', effectiveVoucher.claim_id)
           .then((res: { error: unknown }) => {
@@ -929,16 +974,22 @@ export default function CashierPOSPage() {
           .select('id, current_uses')
           .ilike('code', effectiveVoucher.code)
           .maybeSingle()
-          .then((res: { data: { id: string; current_uses?: number | null } | null }) => {
+          .then(async (res: { data: { id: string; current_uses?: number | null } | null }) => {
             const vRec = res.data
             if (vRec) {
-              supabase
-                .from('vouchers')
-                .update({ current_uses: (vRec.current_uses || 0) + 1 })
-                .eq('id', vRec.id)
-                .then((updateRes: { error: unknown }) => {
-                  if (updateRes.error) console.error('Error incrementing voucher uses:', updateRes.error)
-                })
+              const { error: rpcErr } = await supabase.rpc('increment_voucher_usage', {
+                voucher_id: vRec.id,
+              })
+              if (rpcErr) {
+                // Fallback direct update jika RPC belum dipasang
+                supabase
+                  .from('vouchers')
+                  .update({ current_uses: (vRec.current_uses || 0) + 1 })
+                  .eq('id', vRec.id)
+                  .then((updateRes: { error: unknown }) => {
+                    if (updateRes.error) console.error('Error incrementing voucher uses:', updateRes.error)
+                  })
+              }
             }
           })
       }

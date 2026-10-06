@@ -133,6 +133,27 @@ export default function AdminOrdersPage() {
 
       if (!error && data) {
         setOrders(data)
+
+        // Tangani query param ?search= atau ?auto_open=1 dari scanner kasir
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search)
+          const qSearch = params.get('search') || params.get('id')
+          const autoOpen = params.get('auto_open') === '1'
+
+          if (qSearch) {
+            setSearch(qSearch)
+            const matched = data.find(
+              (o: Order) =>
+                o.id.toLowerCase() === qSearch.toLowerCase() ||
+                o.id.toLowerCase().startsWith(qSearch.toLowerCase())
+            )
+            if (matched && autoOpen) {
+              openDetailModal(matched)
+              // Bersihkan param auto_open dari URL
+              window.history.replaceState({}, '', `/admin/orders?search=${encodeURIComponent(qSearch)}`)
+            }
+          }
+        }
       }
     } catch (err) {
       console.error(err)
@@ -203,6 +224,84 @@ export default function AdminOrdersPage() {
             }
           })
         }
+      }
+
+      // Jika pesanan dibatalkan (cancelled), kembalikan voucher ke pelanggan & sesuaikan poin jika pernah diberikan
+      if (newStatus === 'cancelled') {
+        const targetOrder = orders.find(o => o.id === orderId)
+        if (targetOrder?.voucher_code) {
+          // 1. Kembalikan status voucher di dompet pelanggan ke 'claimed'
+          supabase
+            .from('user_vouchers')
+            .update({ status: 'claimed', used_at: null, used_via: null, order_id: null })
+            .eq('order_id', orderId)
+            .then(() => {})
+
+          if (targetOrder.user_id) {
+            supabase
+              .from('user_vouchers')
+              .update({ status: 'claimed', used_at: null, used_via: null, order_id: null })
+              .eq('user_id', targetOrder.user_id)
+              .ilike('voucher_code', targetOrder.voucher_code)
+              .eq('status', 'used')
+              .then(() => {})
+          }
+
+          // 2. Kembalikan kuota di master vouchers
+          supabase
+            .from('vouchers')
+            .select('id, current_uses')
+            .ilike('code', targetOrder.voucher_code)
+            .maybeSingle()
+            .then((res: { data: { id: string; current_uses?: number | null } | null }) => {
+              if (res.data && (res.data.current_uses || 0) > 0) {
+                supabase
+                  .from('vouchers')
+                  .update({ current_uses: Math.max(0, (res.data.current_uses || 1) - 1) })
+                  .eq('id', res.data.id)
+                  .then(() => {})
+              }
+            })
+        }
+
+        // 3. Batalkan perolehan poin loyalitas jika order ini pernah diberi poin
+        if (targetOrder?.user_id) {
+          supabase
+            .from('loyalty_transactions')
+            .select('id, points')
+            .eq('order_id', orderId)
+            .eq('type', 'earned')
+            .maybeSingle()
+            .then(async (res: { data: { id: string; points: number } | null }) => {
+              if (res.data && res.data.points > 0) {
+                const pointsToRevoke = res.data.points
+                await supabase.from('loyalty_transactions').insert({
+                  user_id: targetOrder.user_id,
+                  points: -pointsToRevoke,
+                  type: 'adjusted',
+                  description: `Penyesuaian: Pesanan #${orderId.slice(0, 8).toUpperCase()} dibatalkan`,
+                  order_id: orderId,
+                })
+
+                const { data: prof } = await supabase
+                  .from('profiles')
+                  .select('loyalty_points')
+                  .eq('id', targetOrder.user_id)
+                  .single()
+
+                if (prof) {
+                  const newPts = Math.max(0, (prof.loyalty_points || 0) - pointsToRevoke)
+                  await supabase
+                    .from('profiles')
+                    .update({ loyalty_points: newPts })
+                    .eq('id', targetOrder.user_id)
+                }
+              }
+            })
+        }
+
+        showToast('success', `Pesanan #${orderId.slice(0, 8).toUpperCase()} dibatalkan. Voucher & kuota pelanggan telah dipulihkan!`)
+        return
       }
 
       showToast('success', `Status pesanan berhasil diubah menjadi ${statusBadgeColors[newStatus]?.label || newStatus}`)

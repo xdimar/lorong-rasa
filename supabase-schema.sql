@@ -518,3 +518,308 @@ CREATE POLICY "Staff can delete menu images"
     bucket_id = 'menu-images'
     AND public.is_staff()
   );
+
+-- ------------------------------------------------------------
+-- 10. PROTEKSI PROFIL & RPC VOUCHER (MIGRATION 06)
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.protect_profile_fields()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+BEGIN
+  IF NOT public.is_admin() THEN
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+      RAISE EXCEPTION 'Akses Ditolak: Anda tidak memiliki izin untuk mengubah peran akun (role).';
+    END IF;
+
+    IF NEW.loyalty_points IS DISTINCT FROM OLD.loyalty_points THEN
+      RAISE EXCEPTION 'Akses Ditolak: Saldo poin hanya dapat diubah melalui sistem transaksi kafe.';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_protect_profile_fields ON public.profiles;
+CREATE TRIGGER tr_protect_profile_fields
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.protect_profile_fields();
+
+CREATE OR REPLACE FUNCTION public.increment_voucher_usage(voucher_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_rec RECORD;
+BEGIN
+  SELECT id, code, is_active, max_uses, current_uses, expires_at
+  INTO v_rec
+  FROM public.vouchers
+  WHERE id = voucher_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Voucher tidak ditemukan di sistem.');
+  END IF;
+
+  IF NOT v_rec.is_active THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Voucher saat ini sedang tidak aktif.');
+  END IF;
+
+  IF v_rec.expires_at < NOW() THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Voucher telah kedaluwarsa.');
+  END IF;
+
+  IF v_rec.max_uses > 0 AND (v_rec.current_uses >= v_rec.max_uses) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Kuota penggunaan voucher sudah habis.');
+  END IF;
+
+  UPDATE public.vouchers
+  SET current_uses = COALESCE(current_uses, 0) + 1,
+      updated_at = NOW()
+  WHERE id = voucher_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'voucher_id', voucher_id,
+    'code', v_rec.code,
+    'current_uses', COALESCE(v_rec.current_uses, 0) + 1
+  );
+END;
+$$;
+
+ALTER FUNCTION public.increment_voucher_usage(UUID) OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.increment_voucher_usage(UUID) TO anon, authenticated, service_role;
+
+DROP POLICY IF EXISTS "Vouchers manageable by admin" ON public.vouchers;
+DROP POLICY IF EXISTS "Vouchers manageable by staff" ON public.vouchers;
+CREATE POLICY "Vouchers manageable by staff"
+  ON public.vouchers FOR ALL
+  USING (public.is_staff());
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_order_earned
+  ON public.loyalty_transactions(order_id, type)
+  WHERE order_id IS NOT NULL AND type = 'earned';
+
+-- ------------------------------------------------------------
+-- 11. RPC LOYALTY POINTS & REWARD REDEEM (MIGRATION 07)
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.award_order_loyalty_points(
+  p_order_id UUID,
+  p_user_id UUID,
+  p_total_amount NUMERIC
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_pts_to_award INTEGER;
+  v_current_points INTEGER;
+  v_new_points INTEGER;
+BEGIN
+  v_pts_to_award := FLOOR(COALESCE(p_total_amount, 0) / 10000)::INTEGER;
+  IF v_pts_to_award <= 0 THEN
+    RETURN jsonb_build_object('success', true, 'points_awarded', 0);
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.loyalty_transactions
+    WHERE order_id = p_order_id AND type = 'earned'
+  ) THEN
+    RETURN jsonb_build_object('success', true, 'points_awarded', 0, 'already_awarded', true);
+  END IF;
+
+  SELECT COALESCE(loyalty_points, 0)
+  INTO v_current_points
+  FROM public.profiles
+  WHERE id = p_user_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Profil member tidak ditemukan.');
+  END IF;
+
+  v_new_points := v_current_points + v_pts_to_award;
+
+  UPDATE public.profiles
+  SET loyalty_points = v_new_points,
+      updated_at = NOW()
+  WHERE id = p_user_id;
+
+  INSERT INTO public.loyalty_transactions (
+    user_id,
+    points,
+    type,
+    description,
+    order_id
+  ) VALUES (
+    p_user_id,
+    v_pts_to_award,
+    'earned',
+    format('Perolehan poin dari pesanan #%s', UPPER(SUBSTRING(p_order_id::text, 1, 8))),
+    p_order_id
+  );
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'points_awarded', v_pts_to_award,
+    'new_points', v_new_points
+  );
+END;
+$$;
+
+ALTER FUNCTION public.award_order_loyalty_points(UUID, UUID, NUMERIC) OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.award_order_loyalty_points(UUID, UUID, NUMERIC) TO anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.redeem_loyalty_reward(
+  p_reward_id TEXT,
+  p_user_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_reward RECORD;
+  v_current_points INTEGER;
+  v_new_points INTEGER;
+  v_voucher_code TEXT;
+  v_voucher_id UUID;
+  v_expires_at TIMESTAMPTZ;
+  v_rand_suffix TEXT;
+BEGIN
+  v_user_id := COALESCE(p_user_id, auth.uid());
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Sesi pengguna tidak valid. Silakan login kembali.');
+  END IF;
+
+  IF p_user_id IS NOT NULL AND p_user_id <> auth.uid() AND NOT public.is_staff() THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Akses ditolak: Anda tidak memiliki wewenang menukar poin akun lain.');
+  END IF;
+
+  BEGIN
+    SELECT id, title, description, points_required, reward_type, discount_type, discount_value, min_order, is_active
+    INTO v_reward
+    FROM public.loyalty_rewards
+    WHERE id = p_reward_id::UUID;
+  EXCEPTION WHEN OTHERS THEN
+    SELECT id, title, description, points_required, reward_type, discount_type, discount_value, min_order, is_active
+    INTO v_reward
+    FROM public.loyalty_rewards
+    WHERE is_active = TRUE AND (title ILIKE '%' || p_reward_id || '%' OR p_reward_id ILIKE '%' || points_required::text || '%')
+    ORDER BY points_required ASC
+    LIMIT 1;
+  END;
+
+  IF v_reward.id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Katalog reward tidak ditemukan di sistem.');
+  END IF;
+
+  IF NOT v_reward.is_active THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Reward ini sedang tidak aktif.');
+  END IF;
+
+  SELECT COALESCE(loyalty_points, 0)
+  INTO v_current_points
+  FROM public.profiles
+  WHERE id = v_user_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Profil member tidak ditemukan.');
+  END IF;
+
+  IF v_current_points < v_reward.points_required THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', format('Poin Anda (%s) belum mencukupi untuk reward ini (butuh %s poin).', v_current_points, v_reward.points_required)
+    );
+  END IF;
+
+  v_new_points := v_current_points - v_reward.points_required;
+
+  LOOP
+    v_rand_suffix := UPPER(SUBSTR(MD5(RANDOM()::TEXT), 1, 5));
+    v_voucher_code := 'POIN-' || v_rand_suffix;
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.vouchers WHERE code = v_voucher_code);
+  END LOOP;
+
+  v_expires_at := NOW() + INTERVAL '30 days';
+
+  INSERT INTO public.vouchers (
+    code,
+    description,
+    discount_type,
+    discount_value,
+    min_order,
+    max_uses,
+    current_uses,
+    expires_at,
+    is_active
+  ) VALUES (
+    v_voucher_code,
+    '[Reward Tukar Poin] ' || v_reward.title,
+    COALESCE(v_reward.discount_type, 'fixed'),
+    COALESCE(v_reward.discount_value, 10000),
+    COALESCE(v_reward.min_order, 0),
+    1,
+    0,
+    v_expires_at,
+    TRUE
+  ) RETURNING id INTO v_voucher_id;
+
+  INSERT INTO public.user_vouchers (
+    user_id,
+    voucher_id,
+    voucher_code,
+    status
+  ) VALUES (
+    v_user_id,
+    v_voucher_id,
+    v_voucher_code,
+    'claimed'
+  );
+
+  UPDATE public.profiles
+  SET loyalty_points = v_new_points,
+      updated_at = NOW()
+  WHERE id = v_user_id;
+
+  INSERT INTO public.loyalty_transactions (
+    user_id,
+    points,
+    type,
+    description,
+    order_id
+  ) VALUES (
+    v_user_id,
+    -v_reward.points_required,
+    'redeemed',
+    format('Penukaran %s poin untuk voucher %s (%s)', v_reward.points_required, v_voucher_code, v_reward.title),
+    NULL
+  );
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'voucher_code', v_voucher_code,
+    'voucher_id', v_voucher_id,
+    'title', v_reward.title,
+    'new_points', v_new_points,
+    'expires_at', v_expires_at
+  );
+END;
+$$;
+
+ALTER FUNCTION public.redeem_loyalty_reward(TEXT, UUID) OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.redeem_loyalty_reward(TEXT, UUID) TO anon, authenticated, service_role;
+

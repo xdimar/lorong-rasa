@@ -19,6 +19,7 @@ import {
   Store,
   MessageSquare,
   BookOpen,
+  Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
@@ -47,31 +48,70 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [role, setRole] = useState<'admin' | 'cashier' | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [isAuthorized, setIsAuthorized] = useState(false)
 
   useEffect(() => {
-    const fetchUserRole = async () => {
+    let isMounted = true
+
+    const checkAccess = async () => {
       try {
         const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle()
-          if (profile?.role) {
-            setRole(profile.role as 'admin' | 'cashier')
-          }
+        const { data: { user }, error: authErr } = await supabase.auth.getUser()
+
+        if (!isMounted) return
+
+        if (authErr || !user) {
+          // Belum login: arahkan ke login dengan redirect
+          router.replace(`/login?redirect=${encodeURIComponent(pathname)}`)
+          return
         }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (!isMounted) return
+
+        const userRole = profile?.role as 'admin' | 'cashier' | undefined
+
+        if (!userRole || (userRole !== 'admin' && userRole !== 'cashier')) {
+          // Login sebagai customer biasa: tolak akses dan arahkan ke beranda
+          router.replace('/')
+          return
+        }
+
+        // Cek izin akses spesifik halaman:
+        // Kasir dilarang mengakses halaman admin eksklusif (Dashboard, Users, Vouchers)
+        const adminOnlyPaths = ['/admin', '/admin/users', '/admin/vouchers']
+        const isExactAdminOnly = adminOnlyPaths.includes(pathname)
+
+        if (userRole === 'cashier' && isExactAdminOnly) {
+          router.replace('/admin/pos')
+          return
+        }
+
+        setRole(userRole)
+        setIsAuthorized(true)
       } catch (err) {
-        console.error(err)
+        console.error('AdminLayout guard error:', err)
+        if (isMounted) router.replace('/login')
+      } finally {
+        if (isMounted) setAuthLoading(false)
       }
     }
-    fetchUserRole()
-  }, [])
+
+    checkAccess()
+
+    return () => {
+      isMounted = false
+    }
+  }, [pathname, router])
 
   const navItems = allNavItems
-    .filter(item => !role || item.roles.includes(role))
+    .filter(item => role && item.roles.includes(role))
     .map(item => {
       if (item.href === '/admin/menu' && role === 'cashier') {
         return { ...item, label: 'Ketersediaan Menu' }
@@ -84,6 +124,44 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     router.push('/')
     router.refresh()
+  }
+
+  // Tampilkan loading screen sebelum hak akses tervalidasi penuh
+  if (authLoading || !isAuthorized) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--color-bg)',
+          color: 'var(--color-text-secondary)',
+          fontFamily: 'var(--font-inter)',
+          gap: '1rem',
+        }}
+      >
+        <div
+          style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, var(--color-primary), var(--color-primary-dark))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 8px 24px var(--color-primary-glow)',
+          }}
+        >
+          <Coffee size={24} color="white" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 600 }}>
+          <Loader2 size={18} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+          <span>Memverifikasi Hak Akses Staf...</span>
+        </div>
+      </div>
+    )
   }
 
   const renderSidebar = () => (

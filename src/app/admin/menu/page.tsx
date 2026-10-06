@@ -57,7 +57,7 @@ export default function MenuAdminPage() {
   const [imageMode, setImageMode] = useState<'upload' | 'url'>('upload')
   const [urlInput, setUrlInput] = useState('')
   const [uploadMessage, setUploadMessage] = useState('')
-  const [userRole, setUserRole] = useState<'admin' | 'cashier'>('admin')
+  const [userRole, setUserRole] = useState<'admin' | 'cashier'>('cashier')
   const [dragOver, setDragOver] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [adjustModalOpen, setAdjustModalOpen] = useState(false)

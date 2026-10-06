@@ -243,6 +243,45 @@ export default function ScanVoucherPage() {
 
       const isUuid = (val: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)
 
+      // 0. Deteksi QR Pengambilan Pesanan Pelanggan (Order Pickup QR dari /orders/[id])
+      if (text.startsWith('LORONG_RASA_ORDER:')) {
+        const payload = text.replace('LORONG_RASA_ORDER:', '')
+        const parts = payload.split('|')
+        const orderId = parts[0]?.trim() || ''
+        const customerName = parts[1]?.trim() || 'Pelanggan'
+        const totalAmount = parts[2]?.trim() || ''
+
+        if (orderId && isUuid(orderId)) {
+          const totalStr = totalAmount && !isNaN(Number(totalAmount)) ? ` - Rp ${Number(totalAmount).toLocaleString('id-ID')}` : ''
+          setSuccessMsg(`📦 Pesanan #${orderId.slice(0, 8).toUpperCase()} (${customerName}${totalStr}) Ditemukan! Mengalihkan ke data pesanan...`)
+          setRedirectUrl(`/admin/orders?search=${encodeURIComponent(orderId)}&auto_open=1`)
+          setRedirecting(true)
+          setLoading(false)
+
+          setTimeout(() => {
+            router.push(`/admin/orders?search=${encodeURIComponent(orderId)}&auto_open=1`)
+          }, 600)
+          return
+        }
+      }
+
+      // Deteksi jika input berupa URL pelacakan pesanan
+      if (text.includes('/orders/')) {
+        const orderMatch = text.match(/\/orders\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+        if (orderMatch && orderMatch[1]) {
+          const orderId = orderMatch[1]
+          setSuccessMsg(`📦 Pesanan #${orderId.slice(0, 8).toUpperCase()} Terdeteksi! Mengalihkan ke data pesanan...`)
+          setRedirectUrl(`/admin/orders?search=${encodeURIComponent(orderId)}&auto_open=1`)
+          setRedirecting(true)
+          setLoading(false)
+
+          setTimeout(() => {
+            router.push(`/admin/orders?search=${encodeURIComponent(orderId)}&auto_open=1`)
+          }, 600)
+          return
+        }
+      }
+
       let claimId: string | null = null
       let code: string | null = null
       let awardedProductFromScan: string | null = null

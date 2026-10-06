@@ -115,11 +115,23 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
         (db) => db.id === item.id || db.name.toLowerCase() === item.name.toLowerCase()
       )
 
+      if (!dbMatch) {
+        return { success: false, error: `Menu "${item.name}" tidak ditemukan di database resmi Lorong Rasa.` }
+      }
+
+      // Cegah pemesanan menu yang sedang habis / tidak tersedia
+      if (!dbMatch.is_available) {
+        return {
+          success: false,
+          error: `Maaf, menu "${dbMatch.name}" saat ini sedang habis (stok tidak tersedia). Harap hapus atau sesuaikan pesanan Anda.`,
+        }
+      }
+
       // HARGA WAJIB DIAMBIL DARI DATABASE SERVER (bukan kiriman client)
-      const verifiedPrice = dbMatch ? Number(dbMatch.price) : Number(item.price)
+      const verifiedPrice = Number(dbMatch.price)
 
       if (isNaN(verifiedPrice) || verifiedPrice < 0) {
-        return { success: false, error: `Harga untuk menu "${item.name}" tidak valid.` }
+        return { success: false, error: `Harga untuk menu "${dbMatch.name}" tidak valid.` }
       }
 
       const itemSubtotal = verifiedPrice * qty
@@ -325,11 +337,18 @@ export async function createVerifiedOrder(payload: CreateOrderInput): Promise<Cr
           }
         }
 
-        // Tambah kuota terpakai pada tabel vouchers
-        await supabase
-          .from('vouchers')
-          .update({ current_uses: (validatedVoucher.current_uses || 0) + 1 })
-          .eq('id', validatedVoucher.id)
+        // Tambah kuota terpakai pada tabel vouchers via RPC atomik (Aman dari RLS & Race Condition)
+        const { error: rpcErr } = await supabase.rpc('increment_voucher_usage', {
+          voucher_id: validatedVoucher.id,
+        })
+
+        if (rpcErr) {
+          // Fallback update langsung jika RPC belum terpasang di database
+          await supabase
+            .from('vouchers')
+            .update({ current_uses: (validatedVoucher.current_uses || 0) + 1 })
+            .eq('id', validatedVoucher.id)
+        }
       } catch (vErr) {
         console.error('Non-critical: voucher usage status update notice:', vErr)
       }

@@ -280,7 +280,7 @@ export default function VouchersPage() {
       description: form.description,
       discount_type: form.discount_type,
       discount_value: form.discount_value,
-      min_order: form.discount_type === 'product' ? 0 : form.min_order,
+      min_order: Number(form.min_order) || 0,
       max_uses: form.max_uses,
       expires_at: form.expires_at.includes('T')
         ? new Date(form.expires_at).toISOString()
